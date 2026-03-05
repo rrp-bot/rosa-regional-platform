@@ -154,9 +154,8 @@ phases:
         fi
 artifacts:
   files:
+    - '**/*'
     - terraform/config/management-cluster/outputs.json
-    - deploy/**/*.json
-    - scripts/**/*.sh
   exclude-paths:
     - '**/.terraform/**'
     - '**/.terraform.lock.hcl'

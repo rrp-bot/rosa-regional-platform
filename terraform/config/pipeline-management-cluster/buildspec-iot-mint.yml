@@ -71,8 +71,7 @@ phases:
 
 artifacts:
   files:
-    - deploy/**/*.json
-    - scripts/**/*.sh
+    - '**/*'
   exclude-paths:
     - '**/.terraform/**'
     - '**/.terraform.lock.hcl'
