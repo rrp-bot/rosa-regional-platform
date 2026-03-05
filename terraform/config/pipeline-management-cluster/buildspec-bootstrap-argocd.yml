@@ -13,6 +13,7 @@ phases:
           ./scripts/pipeline-common/bootstrap-argocd-wrapper.sh
 
   build:
+    on-failure: RETRY-1
     commands:
       - echo "=========================================="
       - echo "ArgoCD Bootstrap for Management Cluster"

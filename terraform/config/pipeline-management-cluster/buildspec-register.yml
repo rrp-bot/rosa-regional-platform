@@ -5,6 +5,7 @@ env:
 
 phases:
   build:
+    on-failure: RETRY-1
     commands:
       - echo "=========================================="
       - echo "Register MC with Regional Cluster API"

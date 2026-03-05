@@ -5,6 +5,7 @@ env:
 
 phases:
   build:
+    on-failure: RETRY-1
     commands:
       - echo "Building platform image..."
       - chmod +x ./scripts/build-platform-image.sh

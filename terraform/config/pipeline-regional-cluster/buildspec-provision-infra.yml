@@ -5,6 +5,7 @@ env:
 
 phases:
   build:
+    on-failure: RETRY-1
     commands:
       - echo "=========================================="
       - echo "Provisioning Regional Cluster Infrastructure"
@@ -106,7 +107,10 @@ phases:
       - echo "Infrastructure deployment complete."
 artifacts:
   files:
-    - '**/*'
     - terraform/config/regional-cluster/outputs.json
+    - deploy/**/*.json
+    - scripts/**/*.sh
   exclude-paths:
     - '**/.terraform/**'
+    - '**/.terraform.lock.hcl'
+    - '**/node_modules/**'
