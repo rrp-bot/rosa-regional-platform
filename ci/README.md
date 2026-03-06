@@ -15,11 +15,11 @@ CI is managed through the [OpenShift CI](https://docs.ci.openshift.org/) system 
 
 ## Build Image
 
-The CI image is built from `ci/Containerfile` and includes all required tools (Terraform, Helm, AWS CLI, Python/uv, etc.).
+The CI image is built from [ci/Containerfile](ci/Containerfile) and includes all required tools (Terraform, Helm, AWS CLI, Python/uv, etc.).
 
 ## Pre-merge / Ephemeral Environment
 
-The `ci/pre-merge.py` script manages ephemeral environments for CI testing. It supports two modes — provision and teardown — designed to run as separate CI steps with tests in between.
+The [ci/pre-merge.py](ci/pre-merge.py) script manages ephemeral environments for CI testing. It supports two modes — provision and teardown — designed to run as separate CI steps with tests in between.
 
 1. Creates a CI-owned git branch from the source repo/branch
 2. Bootstraps the pipeline-provisioner pointing at the CI branch
