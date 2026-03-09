@@ -4,13 +4,23 @@
 
 set -euo pipefail
 
-export BASE_URL="$(cat "${SHARED_DIR}/api-url")"
+API_URL_FILE="${SHARED_DIR}/api-url"
+if [[ ! -r "${API_URL_FILE}" ]]; then
+  echo "ERROR: ${API_URL_FILE} does not exist or is not readable" >&2
+  exit 1
+fi
+BASE_URL="$(cat "${API_URL_FILE}")"
+export BASE_URL
 echo "Running API e2e tests against ${BASE_URL}"
 
-git clone https://github.com/openshift-online/rosa-regional-platform-api.git /tmp/api
-cd /tmp/api
+API_REF="${API_REF:-main}"
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "${WORK_DIR}"' EXIT
+git clone --depth 1 --branch "${API_REF}" \
+  https://github.com/openshift-online/rosa-regional-platform-api.git "${WORK_DIR}/api"
+cd "${WORK_DIR}/api"
 
 go install github.com/onsi/ginkgo/v2/ginkgo@v2.28.1
-export PATH="${GOPATH}/bin:${PATH}"
+export PATH="$(go env GOPATH)/bin:${PATH}"
 
 make test-e2e
