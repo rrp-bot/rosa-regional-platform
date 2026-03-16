@@ -327,9 +327,10 @@ def resolve_region_deployments(
                     mc_list.append(mc_entry)
                 rd["management_clusters"] = mc_list
 
-                # Template-process values and terraform_vars
+                # Template-process values, terraform_vars and accounts
                 rd["values"] = resolve_templates(rd.get("values", {}), rd)
                 rd["terraform_vars"] = resolve_templates(rd.get("terraform_vars", {}), rd)
+                rd["accounts"] = resolve_templates(rd.get("accounts", {}), rd)
 
                 resolved.append(rd)
 
@@ -661,6 +662,13 @@ def render_environment_accounts(
         # Merge accounts-level fields (environment_domain, etc.)
         accounts = rd.get("accounts", {})
         if accounts:
+            existing = {k: v for k, v in envs[env].items() if k != "region_definitions"}
+            conflicts = set(existing.keys()) & set(accounts.keys())
+            if conflicts:
+                print(
+                    f"  [WARN] accounts key conflict in env '{env}' region '{aws_region}': "
+                    f"{conflicts} — region-level values will not overwrite existing"
+                )
             envs[env] = deep_merge(envs[env], accounts)
 
     for env, env_data in envs.items():
