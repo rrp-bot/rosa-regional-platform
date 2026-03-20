@@ -255,8 +255,8 @@ ephemeral-provision: ephemeral-image
 	trap 'rm -rf "$$_tmpdir"' EXIT; \
 	$(CONTAINER_ENGINE) run --rm \
 		$$_CRED_FLAGS \
-		-v $(PWD):/workspace:ro \
-		-v $$_tmpdir:/output \
+		-v $(PWD):/workspace:ro,z \
+		-v $$_tmpdir:/output:z \
 		-w /workspace \
 		-e BUILD_ID=$(ID) \
 		-e AWS_REGION=$(REGION) \
@@ -329,7 +329,7 @@ ephemeral-teardown: ephemeral-image
 	grep -v "^$$_BUILD_ID " $(EPHEMERAL_ENVS_FILE) > $(EPHEMERAL_ENVS_FILE).tmp; grep "^$$_BUILD_ID " $(EPHEMERAL_ENVS_FILE) | sed 's/STATE=[^ ]*/STATE=deprovisioning/' >> $(EPHEMERAL_ENVS_FILE).tmp; mv $(EPHEMERAL_ENVS_FILE).tmp $(EPHEMERAL_ENVS_FILE); \
 	$(CONTAINER_ENGINE) run --rm \
 		$$_CRED_FLAGS \
-		-v $(PWD):/workspace:ro \
+		-v $(PWD):/workspace:ro,z \
 		-w /workspace \
 		-e BUILD_ID=$$_BUILD_ID \
 		-e AWS_REGION=$$_REGION \
@@ -379,7 +379,7 @@ ephemeral-resync: ephemeral-image
 	echo "  IMAGE:             $(EPHEMERAL_CI_IMAGE)"; \
 	$(CONTAINER_ENGINE) run --rm \
 		$$_CRED_FLAGS \
-		-v $(PWD):/workspace:ro \
+		-v $(PWD):/workspace:ro,z \
 		-w /workspace \
 		-e BUILD_ID=$$_BUILD_ID \
 		$(EPHEMERAL_CI_IMAGE) \
@@ -482,7 +482,7 @@ ephemeral-e2e: ephemeral-image
 	echo "  REGION:     $$_REGION"; \
 	echo "  API_REF:    $(API_REF)"; \
 	$(CONTAINER_ENGINE) run --rm \
-		-v $(PWD):/workspace:ro \
+		-v $(PWD):/workspace:ro,z \
 		-w /workspace \
 		-e BASE_URL=$$_API_URL \
 		-e AWS_ACCESS_KEY_ID=$$_REGIONAL_AK \
