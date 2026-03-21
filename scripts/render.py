@@ -4,6 +4,7 @@
 # dependencies = [
 #     "PyYAML>=6.0",
 #     "Jinja2>=3.1",
+#     "ruamel.yaml>=0.18",
 # ]
 # ///
 """
@@ -22,9 +23,15 @@ from typing import Any
 
 import yaml
 from jinja2 import Environment
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 
 
 # -- Core utilities -----------------------------------------------------------
+
+_ruamel = YAML()
+_ruamel.preserve_quotes = True
+_ruamel.width = 4096
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -35,6 +42,15 @@ def load_yaml(path: Path) -> dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def load_yaml_ruamel(path: Path) -> CommentedMap:
+    """Load a YAML file with ruamel, preserving comments."""
+    if not path.exists():
+        return CommentedMap()
+    with open(path) as f:
+        result = _ruamel.load(f)
+        return result if isinstance(result, CommentedMap) else CommentedMap()
+
+
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge two dicts. Overlay wins on conflicts."""
     result = base.copy()
@@ -43,6 +59,17 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
             result[key] = deep_merge(result[key], value)
         else:
             result[key] = value
+    return result
+
+
+def deep_merge_ruamel(base: CommentedMap, overlay: CommentedMap) -> CommentedMap:
+    """Recursively merge CommentedMaps, preserving comments from base."""
+    result = base.copy()
+    for key in overlay:
+        if key in result and isinstance(result[key], CommentedMap) and isinstance(overlay[key], CommentedMap):
+            result[key] = deep_merge_ruamel(result[key], overlay[key])
+        else:
+            result[key] = overlay[key]
     return result
 
 
@@ -459,6 +486,7 @@ def main() -> int:
         if d.is_dir() and not d.name.startswith(".") and d.name.endswith("cluster")
     )
     global_defaults = load_yaml(config_dir / "defaults.yaml")
+    global_defaults_ruamel = load_yaml_ruamel(config_dir / "defaults.yaml")
 
     if ci_prefix:
         print(f"CI prefix: {ci_prefix}")
@@ -474,6 +502,7 @@ def main() -> int:
     for env_name in environments:
         env_dir = config_dir / env_name
         env_defaults = load_yaml(env_dir / "defaults.yaml")
+        env_defaults_ruamel = load_yaml_ruamel(env_dir / "defaults.yaml")
         regions = discover_regions(env_dir)
         if not regions:
             continue
@@ -482,18 +511,33 @@ def main() -> int:
         env_regions[env_name] = set(regions)
         env_region_mcs[env_name] = {}
 
-        # Merge configs for all regions
+        # -- Stage 1: Merge config hierarchy → _merged_config.yaml --------
         region_configs = {}
+        region_configs_ruamel = {}
         for region in regions:
             region_yaml = load_yaml(env_dir / f"{region}.yaml")
             region_configs[region] = deep_merge(deep_merge(global_defaults, env_defaults), region_yaml)
+            region_yaml_ruamel = load_yaml_ruamel(env_dir / f"{region}.yaml")
+            region_configs_ruamel[region] = deep_merge_ruamel(
+                deep_merge_ruamel(global_defaults_ruamel, env_defaults_ruamel), region_yaml_ruamel
+            )
+
+            out_dir = deploy_dir / env_name / region
+            config_output = out_dir / "_merged_config.yaml"
+            config_output.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_output, "w") as f:
+                f.write(f"# Merged config: defaults.yaml → {env_name}/defaults.yaml → {env_name}/{region}.yaml\n")
+                f.write("# This file is the output of stage 1 (merge). Stage 2 feeds it to config/templates/.\n")
+                f.write("\n")
+                _ruamel.dump(region_configs_ruamel[region], f)
+            print(f"  [OK] {config_output}")
 
         # Region definitions (env-level) — constructed by template
         render_file(templates_dir, "region-definitions.json",
                     {"region_configs": region_configs, "environment": env_name, "ci_prefix": ci_prefix},
                     deploy_dir / env_name / "region-definitions.json")
 
-        # Render per-region outputs
+        # -- Stage 2: Feed merged config to templates → output files ----
         for region in regions:
             merged = region_configs[region]
             ctx = build_context(merged, env_name, region, ci_prefix)
@@ -522,11 +566,6 @@ def main() -> int:
                 mc_id = mc["management_id"]
                 render_file(templates_dir, "pipeline-provisioner-inputs/management-cluster.json", mc_ctx, out_dir / "pipeline-provisioner-inputs" / f"management-cluster-{mc_id}.json")
                 render_file(templates_dir, "pipeline-management-cluster-inputs/terraform.json", mc_ctx, out_dir / f"pipeline-management-cluster-{mc_id}-inputs" / "terraform.json")
-
-            # Write merged config for debugging
-            config_output = out_dir / "config.yaml"
-            write_output(yaml.dump(merged, default_flow_style=False, sort_keys=False, width=float("inf")), config_output)
-            print(f"  [OK] {config_output}")
 
         print()
 
