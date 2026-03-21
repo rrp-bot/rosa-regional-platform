@@ -111,26 +111,6 @@ def render_file(templates_dir: Path, template_rel: str, context: dict[str, Any],
     return True
 
 
-# -- ApplicationSet -----------------------------------------------------------
-
-
-def create_applicationset_content(
-    base_applicationset_path: Path, config_revision: str | None
-) -> str:
-    """Load base ApplicationSet YAML, optionally pinning to a specific revision."""
-    appset = load_yaml(base_applicationset_path)
-    if config_revision:
-        generators = appset["spec"]["generators"][0]["matrix"]["generators"]
-        for gen in generators:
-            if "git" in gen:
-                gen["git"]["revision"] = config_revision
-                break
-        for source in appset["spec"]["template"]["spec"]["sources"]:
-            if "targetRevision" in source and "ref" not in source:
-                source["targetRevision"] = config_revision
-    return yaml.dump(appset, default_flow_style=False, sort_keys=False, width=float("inf"))
-
-
 # -- Cleanup ------------------------------------------------------------------
 
 
@@ -201,12 +181,11 @@ def build_context(
 
 def build_mc_list(
     ctx: dict[str, Any], merged: dict[str, Any], ci_prefix: str
-) -> tuple[list[dict], list[str]]:
+) -> list[dict]:
     """Build management cluster entries with resolved template values."""
     mc_dict = merged.get("provision_mcs", {})
     default_mc_account = merged.get("aws", {}).get("management_cluster_account_id")
     mc_list = []
-    mc_account_ids = []
 
     for mc_key, mc_val in mc_dict.items():
         mc = dict(mc_val) if mc_val else {}
@@ -215,10 +194,8 @@ def build_mc_list(
             mc["account_id"] = default_mc_account
         mc = resolve_templates(mc, {**ctx, "cluster_prefix": mc_key})
         mc_list.append(mc)
-        if mc.get("account_id"):
-            mc_account_ids.append(mc["account_id"])
 
-    return mc_list, mc_account_ids
+    return mc_list
 
 
 # -- Documentation ------------------------------------------------------------
@@ -227,9 +204,9 @@ def build_mc_list(
 CONTEXT_VARS = {
     "environment", "aws_region", "region", "regional_id",
     "account_id", "management_cluster_account_ids",
-    "cluster_type", "config_revision", "applicationset_content",
-    "application_values", "region_definitions",
-    "delete", "delete_pipeline",
+    "cluster_type", "config_revision", "pinned_revision",
+    "application_values", "region_configs", "ci_prefix",
+    "delete", "delete_pipeline", "mc_key",
 }
 
 _DOC_RE = re.compile(r"^\s*#\s*(?:#\s*)?@doc\s+(\S+)\s+(.+)$", re.MULTILINE)
@@ -467,7 +444,6 @@ def main() -> int:
 
     deploy_dir = project_root / "deploy"
     argocd_config_dir = project_root / "argocd" / "config"
-    base_appset_path = argocd_config_dir / "applicationset" / "base-applicationset.yaml"
 
     if not config_dir.exists():
         print(f"Error: Config directory not found: {config_dir}", file=sys.stderr)
@@ -512,23 +488,18 @@ def main() -> int:
             region_yaml = load_yaml(env_dir / f"{region}.yaml")
             region_configs[region] = deep_merge(deep_merge(global_defaults, env_defaults), region_yaml)
 
-        # Region definitions (env-level)
-        region_defs = {}
-        for region, cfg in region_configs.items():
-            mc_ids = [f"{ci_prefix}-{k}" if ci_prefix else k for k in cfg.get("provision_mcs", {})]
-            region_defs[region] = {
-                "name": env_name, "environment": env_name,
-                "aws_region": region, "management_clusters": mc_ids,
-            }
-        render_file(templates_dir, "region-definitions.json", {"region_definitions": region_defs}, deploy_dir / env_name / "region-definitions.json")
+        # Region definitions (env-level) — constructed by template
+        render_file(templates_dir, "region-definitions.json",
+                    {"region_configs": region_configs, "environment": env_name, "ci_prefix": ci_prefix},
+                    deploy_dir / env_name / "region-definitions.json")
 
         # Render per-region outputs
         for region in regions:
             merged = region_configs[region]
             ctx = build_context(merged, env_name, region, ci_prefix)
-            mc_list, mc_account_ids = build_mc_list(ctx, merged, ci_prefix)
+            mc_list = build_mc_list(ctx, merged, ci_prefix)
             ctx["management_clusters"] = mc_list
-            ctx["management_cluster_account_ids"] = mc_account_ids
+            ctx["management_cluster_account_ids"] = [mc["account_id"] for mc in mc_list if mc.get("account_id")]
             env_region_mcs[env_name][region] = {mc["management_id"] for mc in mc_list}
 
             out_dir = deploy_dir / env_name / region
@@ -542,14 +513,12 @@ def main() -> int:
             app_config = resolve_templates(ctx.get("applications", {}), ctx)
             revision = ctx.get("git", {}).get("revision")
             pinned = revision if (revision and revision != "main") else None
-            appset_content = create_applicationset_content(base_appset_path, pinned)
-            revision_info = pinned[:8] if pinned else "metadata.annotations.git_revision"
 
             for ct in cluster_types:
                 ct_ctx = {**ctx, "cluster_type": ct, "application_values": app_config.get(ct, {})}
                 render_file(templates_dir, "argocd-values.yaml", ct_ctx, out_dir / f"argocd-values-{ct}.yaml")
-                ct_ctx["config_revision"] = revision_info
-                ct_ctx["applicationset_content"] = appset_content
+                ct_ctx["config_revision"] = pinned[:8] if pinned else "metadata.annotations.git_revision"
+                ct_ctx["pinned_revision"] = pinned
                 render_file(templates_dir, "argocd-bootstrap/applicationset.yaml", ct_ctx, out_dir / f"argocd-bootstrap-{ct}" / "applicationset.yaml")
 
             # Per-MC templates
