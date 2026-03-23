@@ -22,7 +22,6 @@ from render import (
     check_docs,
     cleanup_stale_files,
     collect_leaf_paths,
-    create_applicationset_content,
     deep_merge,
     discover_environments,
     discover_regions,
@@ -489,61 +488,6 @@ class TestBuildMcList:
         ctx = build_context(merged, "staging", "us-east-1", "")
         mc_list, _ = build_mc_list(ctx, merged, "")
         assert mc_list[0]["account_id"] == "mc-mc01-us-east-1"
-
-
-# =============================================================================
-# create_applicationset_content
-# =============================================================================
-
-
-class TestCreateApplicationsetContent:
-    def _write_base_applicationset(self, base_dir):
-        appset_dir = base_dir / "applicationset"
-        appset_dir.mkdir(parents=True)
-        appset = {
-            "spec": {
-                "generators": [
-                    {
-                        "matrix": {
-                            "generators": [
-                                {"clusters": {}},
-                                {"git": {"revision": "HEAD"}},
-                            ]
-                        }
-                    }
-                ],
-                "template": {
-                    "spec": {
-                        "sources": [
-                            {"targetRevision": "HEAD", "path": "chart"},
-                            {"targetRevision": "HEAD", "ref": "values"},
-                        ]
-                    }
-                },
-            }
-        }
-        base_path = appset_dir / "base-applicationset.yaml"
-        with open(base_path, "w") as f:
-            yaml.dump(appset, f)
-        return base_path
-
-    def test_without_config_revision(self, tmp_path):
-        base_path = self._write_base_applicationset(tmp_path)
-        result = create_applicationset_content(base_path, None)
-        parsed = yaml.safe_load(result)
-        git_gen = parsed["spec"]["generators"][0]["matrix"]["generators"][1]["git"]
-        assert git_gen["revision"] == "HEAD"
-
-    def test_with_config_revision(self, tmp_path):
-        base_path = self._write_base_applicationset(tmp_path)
-        result = create_applicationset_content(base_path, "abc1234def5")
-        parsed = yaml.safe_load(result)
-        git_gen = parsed["spec"]["generators"][0]["matrix"]["generators"][1]["git"]
-        assert git_gen["revision"] == "abc1234def5"
-        sources = parsed["spec"]["template"]["spec"]["sources"]
-        assert sources[0]["targetRevision"] == "abc1234def5"
-        # Second source (ref: values) should keep original
-        assert sources[1]["targetRevision"] == "HEAD"
 
 
 # =============================================================================
@@ -1691,8 +1635,8 @@ class TestMainIntegration:
         rc_data = json.loads(rc_file.read_text())
         assert rc_data["node_instance_types"] == ["c5.2xlarge"]
 
-    def test_config_yaml_output(self, tmp_path):
-        """Verify config.yaml is written with merged configuration"""
+    def test_merged_config_yaml_output(self, tmp_path):
+        """Verify _merged_config.yaml is written with merged configuration"""
         deploy_dir = self._run_main(
             tmp_path,
             global_defaults={"terraform_tags": {"app_code": "test"}},
@@ -1704,7 +1648,7 @@ class TestMainIntegration:
             },
         )
 
-        config_file = deploy_dir / "staging" / "us-east-1" / "config.yaml"
+        config_file = deploy_dir / "staging" / "us-east-1" / "_merged_config.yaml"
         assert config_file.exists()
         data = yaml.safe_load(config_file.read_text())
         assert data["terraform_tags"]["app_code"] == "test"
