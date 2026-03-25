@@ -17,6 +17,7 @@ kube-prometheus-stack:
       replicas: 2
       retention: "14d"
       retentionSize: "85GB"
+      serviceMonitorSelectorNilUsesHelmValues: false
       serviceMonitorNamespaceSelector: {}
       serviceMonitorSelector: {}
 
