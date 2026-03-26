@@ -49,7 +49,7 @@ spec:
             # AWS IAM role for Pod Identity
             # Replace with your actual IAM role ARN
             eks.amazonaws.com/role-arn: ""
-          name: hyperfleet-adapter-sa
+          name: hyperfleet-adapter1-sa
 
         # Volume configuration to mount secrets from SecretProviderClass
         # Using extraVolumes/extraVolumeMounts to integrate with upstream chart

@@ -82,7 +82,6 @@ resource "aws_iam_role_policy" "hypershift_operator_ec2" {
           "ec2:DescribeVpcEndpointConnections",
           "ec2:AcceptVpcEndpointConnections",
           "ec2:RejectVpcEndpointConnections",
-          "ec2:DescribeVpcEndpointConnections",
           "ec2:DescribeVpcEndpoints",
           "ec2:CreateVpcEndpoint",
           "ec2:DeleteVpcEndpoints",
@@ -226,17 +225,25 @@ resource "aws_iam_role_policy" "external_secrets_operator" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:DescribeSecret",
-        "secretsmanager:ListSecrets"
-      ]
-      Resource = [
-        aws_secretsmanager_secret.openshift_pull_secret.arn
-      ]
-    }]
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+        ]
+        Resource = [
+          aws_secretsmanager_secret.openshift_pull_secret.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:ListSecrets",
+        ]
+        Resource = "*"
+      },
+    ]
   })
 }
 
