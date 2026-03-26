@@ -33,7 +33,7 @@ echo "  Regional ID: ${REGIONAL_ID}"
 echo ""
 
 # Configure Terraform backend (state in target account)
-export TF_STATE_BUCKET="terraform-state-${TARGET_ACCOUNT_ID}"
+export TF_STATE_BUCKET="terraform-state-${TARGET_ACCOUNT_ID}-${TARGET_REGION}"
 export TF_STATE_KEY="regional-cluster/${REGIONAL_ID}.tfstate"
 export TF_STATE_REGION="${TARGET_REGION}"
 
@@ -66,6 +66,9 @@ export TF_VAR_container_image="${PLATFORM_IMAGE}"
 
 export TF_VAR_enable_bastion="${ENABLE_BASTION}"
 
+# Load node_instance_types from deploy config (should be set in config.yaml)
+export TF_VAR_node_instance_types=$(jq -c '.node_instance_types' "$DEPLOY_CONFIG_FILE")
+
 # Set DNS variables (optional — when ENVIRONMENT_DOMAIN is set, creates regional
 # DNS zone and custom API domain)
 if [ -n "${ENVIRONMENT_DOMAIN:-}" ]; then
@@ -75,10 +78,9 @@ if [ -n "${ENVIRONMENT_HOSTED_ZONE_ID:-}" ]; then
     export TF_VAR_environment_hosted_zone_id="${ENVIRONMENT_HOSTED_ZONE_ID}"
 fi
 
-# Extract regional_id, environment, and sector from rendered config
+# Extract regional_id and environment from rendered config
 export TF_VAR_regional_id=$(jq -r '.regional_id' "$DEPLOY_CONFIG_FILE")
 export TF_VAR_environment=$(jq -r '.environment' "$DEPLOY_CONFIG_FILE")
-export TF_VAR_sector="${SECTOR}"
 
 echo "Terraform variables:"
 echo "  Region: $TF_VAR_region"
@@ -89,14 +91,13 @@ echo "  Repository URL: $TF_VAR_repository_url"
 echo "  Repository Branch: $TF_VAR_repository_branch"
 echo "  API Additional Allowed Accounts: $TF_VAR_api_additional_allowed_accounts"
 echo "  Enable Bastion: $TF_VAR_enable_bastion"
+echo "  Node Instance Types: $TF_VAR_node_instance_types"
 echo "  Environment Domain: ${TF_VAR_environment_domain:-<not set>}"
 echo "  Environment Hosted Zone ID: ${TF_VAR_environment_hosted_zone_id:-<not set>}"
 echo "  Regional ID: $TF_VAR_regional_id"
 echo "  Environment: $TF_VAR_environment"
-echo "  Sector: $TF_VAR_sector"
 echo ""
 
-# Export required environment variables for Makefile target
 export ENVIRONMENT="${ENVIRONMENT:-staging}"
 
 # Read delete flag from config (GitOps-driven deletion)
@@ -112,8 +113,13 @@ else
 fi
 echo ""
 
-if [ "${DELETE_FLAG}" == "true" ]; then
-    make pipeline-destroy-regional
-else
-    make pipeline-provision-regional
-fi
+TERRAFORM_ACTION="apply"
+[ "${DELETE_FLAG}" == "true" ] && TERRAFORM_ACTION="destroy"
+
+cd terraform/config/regional-cluster
+terraform init -reconfigure \
+    -backend-config="bucket=${TF_STATE_BUCKET}" \
+    -backend-config="key=${TF_STATE_KEY}" \
+    -backend-config="region=${TF_STATE_REGION}" \
+    -backend-config="use_lockfile=true"
+terraform "${TERRAFORM_ACTION}" -auto-approve

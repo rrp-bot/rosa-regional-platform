@@ -18,7 +18,6 @@ provider "aws" {
       service-phase = var.service_phase
       cost-center   = var.cost_center
       environment   = var.environment
-      sector        = var.sector
     }
   }
 }
@@ -46,6 +45,9 @@ module "regional_cluster" {
   # Required variables
   cluster_type = "regional-cluster"
   cluster_id   = var.regional_id
+
+  # Instance types (configurable via config.yaml)
+  node_instance_types = var.node_instance_types
 }
 
 # Call the ECS bootstrap module for external bootstrap execution

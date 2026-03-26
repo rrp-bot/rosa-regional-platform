@@ -16,11 +16,6 @@ variable "environment" {
   type        = string
 }
 
-variable "sector" {
-  description = "Sector name for tagging (e.g., 'integration', 'us-gov')"
-  type        = string
-}
-
 variable "region" {
   description = "AWS Region for infrastructure deployment"
   type        = string
@@ -207,5 +202,16 @@ variable "hyperfleet_mq_deployment_mode" {
   validation {
     condition     = contains(["SINGLE_INSTANCE", "CLUSTER_MULTI_AZ"], var.hyperfleet_mq_deployment_mode)
     error_message = "Deployment mode must be SINGLE_INSTANCE or CLUSTER_MULTI_AZ"
+  }
+}
+
+variable "node_instance_types" {
+  description = "List of EC2 instance types for worker nodes (configurable via config.yaml terraform_vars)"
+  type        = list(string)
+  default     = ["t3.medium", "t3a.medium"]
+
+  validation {
+    condition     = length(var.node_instance_types) > 0
+    error_message = "Must specify at least one instance type."
   }
 }

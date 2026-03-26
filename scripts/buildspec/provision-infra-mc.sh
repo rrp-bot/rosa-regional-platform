@@ -55,7 +55,7 @@ fi
 use_mc_account
 
 # Configure Terraform backend (state in MC target account)
-export TF_STATE_BUCKET="terraform-state-${TARGET_ACCOUNT_ID}"
+export TF_STATE_BUCKET="terraform-state-${TARGET_ACCOUNT_ID}-${TARGET_REGION}"
 export TF_STATE_KEY="management-cluster/${MANAGEMENT_ID}.tfstate"
 export TF_STATE_REGION="${TARGET_REGION}"
 
@@ -91,12 +91,16 @@ export TF_VAR_container_image="${PLATFORM_IMAGE}"
 
 export TF_VAR_enable_bastion="${ENABLE_BASTION}"
 
+# Load node_instance_types from deploy config (should be set in config.yaml)
+export TF_VAR_node_instance_types=$(jq -c '.node_instance_types' "$DEPLOY_CONFIG_FILE")
+
 echo "Terraform variables:"
 echo "  Region: $TF_VAR_region"
 echo "  Target Account: $TARGET_ACCOUNT_ID"
 echo "  Management ID: $TF_VAR_management_id"
 echo "  Regional AWS Account: $TF_VAR_regional_aws_account_id"
 echo "  Enable Bastion: $TF_VAR_enable_bastion"
+echo "  Node Instance Types: $TF_VAR_node_instance_types"
 echo "  App Code: $TF_VAR_app_code"
 echo "  Service Phase: $TF_VAR_service_phase"
 echo "  Cost Center: $TF_VAR_cost_center"
@@ -107,21 +111,25 @@ echo ""
 export REGION_DEPLOYMENT=$(jq -r '.region' "$DEPLOY_CONFIG_FILE")
 echo "Extracted REGION_DEPLOYMENT from config: $REGION_DEPLOYMENT"
 export ENVIRONMENT="${ENVIRONMENT:-staging}"
-export TF_VAR_sector="${SECTOR}"
+
+TERRAFORM_ACTION="apply"
+[ "${DELETE_FLAG}" == "true" ] && TERRAFORM_ACTION="destroy"
+
+cd terraform/config/management-cluster
+terraform init -reconfigure \
+    -backend-config="bucket=${TF_STATE_BUCKET}" \
+    -backend-config="key=${TF_STATE_KEY}" \
+    -backend-config="region=${TF_STATE_REGION}" \
+    -backend-config="use_lockfile=true"
 
 set +e
-if [ "${DELETE_FLAG}" == "true" ]; then
-    echo "Destroying management cluster"
-    make pipeline-destroy-management
-else
-    make pipeline-provision-management
-fi
-MAKE_TARGET_STATUS=$?
+terraform "${TERRAFORM_ACTION}" -auto-approve
+TERRAFORM_STATUS=$?
 set -e
 
-if [ $MAKE_TARGET_STATUS -ne 0 ]; then
-    echo "Infrastructure action failed with exit code $MAKE_TARGET_STATUS"
-    exit $MAKE_TARGET_STATUS
+if [ $TERRAFORM_STATUS -ne 0 ]; then
+    echo "Infrastructure action failed with exit code $TERRAFORM_STATUS"
+    exit $TERRAFORM_STATUS
 fi
 
 # Clean up temp cert files

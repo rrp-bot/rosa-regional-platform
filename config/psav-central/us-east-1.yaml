@@ -1,0 +1,3 @@
+provision_mcs:
+  mc01:
+    node_instance_types: ["t4g.xlarge"]

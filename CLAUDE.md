@@ -95,7 +95,7 @@ docs/
 1. Update Terraform modules in `terraform/modules/`
 2. **IMPORTANT**: When modifying `versions.tf` files, always use exact provider versions from `terraform/provider-versions.yaml` - this is the single source of truth for all provider versions
 3. Use `make terraform-fmt` and lint jobs for sanitization
-4. For manual testing: create local `terraform.tfvars` and use `make apply-infra-regional` or `make apply-infra-management`
+4. For testing: use `make ephemeral-provision` for ephemeral dev environments, or run `terraform init && terraform apply` directly in the relevant `terraform/config/` directory
 5. Ensure architect agent reviews any architectural changes
 
 #### For Application Changes
@@ -106,8 +106,8 @@ docs/
 
 #### For New Regions
 
-1. Add region config to Git repository
-2. Run `make provision-regional` to provision Regional Cluster
+1. Add region config to `config/environments/` and render with `uv run scripts/render.py`
+2. Bootstrap the central pipeline (see `docs/environment-provisioning.md`)
 3. ArgoCD bootstrap handles core service deployment
 4. Management Clusters auto-provision as needed
 

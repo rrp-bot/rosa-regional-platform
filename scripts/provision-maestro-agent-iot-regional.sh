@@ -150,7 +150,7 @@ echo ""
 # Configure State Backend
 # =============================================================================
 
-IOT_STATE_BUCKET="${IOT_STATE_BUCKET:-terraform-state-${AWS_ACCOUNT_ID}}"
+IOT_STATE_BUCKET="${IOT_STATE_BUCKET:-terraform-state-${AWS_ACCOUNT_ID}-${AWS_REGION}}"
 IOT_STATE_KEY="${IOT_STATE_KEY:-maestro-agent-iot/${CLUSTER_ID}.tfstate}"
 IOT_STATE_REGION="${IOT_STATE_REGION:-${AWS_REGION}}"
 
@@ -239,7 +239,7 @@ echo "==========================================================================
 echo ""
 echo "Deploy the management cluster infrastructure:"
 echo ""
-echo -e "${YELLOW}make provision-management${NC}"
+echo -e "${YELLOW}Deploy the management cluster infrastructure via the pipeline.${NC}"
 echo ""
 echo "The management cluster terraform will read IoT outputs from the"
 echo "regional state and create the Maestro agent secrets automatically."

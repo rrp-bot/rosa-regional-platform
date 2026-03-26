@@ -76,11 +76,6 @@ variable "environment" {
   type        = string
 }
 
-variable "sector" {
-  description = "Sector name for tagging (e.g., 'integration', 'us-gov')"
-  type        = string
-}
-
 variable "regional_aws_account_id" {
   description = "AWS account ID where the regional cluster and IoT Core are hosted"
   type        = string
@@ -98,4 +93,15 @@ variable "maestro_agent_cert_file" {
 variable "maestro_agent_config_file" {
   description = "Path to JSON file containing Maestro agent MQTT configuration (from IoT Mint outputs)"
   type        = string
+}
+
+variable "node_instance_types" {
+  description = "List of EC2 instance types for worker nodes (configurable via config.yaml terraform_vars)"
+  type        = list(string)
+  default     = ["t3.medium", "t3a.medium"]
+
+  validation {
+    condition     = length(var.node_instance_types) > 0
+    error_message = "Must specify at least one instance type."
+  }
 }

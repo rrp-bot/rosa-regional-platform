@@ -11,8 +11,8 @@ CI is managed through the [OpenShift CI](https://docs.ci.openshift.org/) system 
 | [`helm-lint`](https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-openshift-online-rosa-regional-platform-main-helm-lint)                            | Pre-submit                | Lints Helm charts                                                                                                                                       |
 | [`check-rendered-files`](https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-openshift-online-rosa-regional-platform-main-check-rendered-files)      | Pre-submit                | Verifies rendered deploy files are up to date                                                                                                           |
 | [`on-demand-e2e`](https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-openshift-online-rosa-regional-platform-main-on-demand-e2e)                    | Pre-submit (manual)       | End-to-end: provisions ephemeral environment using PR rosa-regional-platform branch, runs tests, tears down. Trigger with `/test on-demand-e2e` on a PR |
-| [`nightly-ephemeral`](https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/periodic-ci-openshift-online-rosa-regional-platform-main-nightly-ephemeral)                     | Daily at 07:00 UTC        | End-to-end: provisions ephemeral environment using `main` rosa-regional-platform branch, runs tests, tears down                                         |
-| [`nightly-integration`](https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/periodic-ci-openshift-online-rosa-regional-platform-main-nightly-integration)                 | Daily at 07:00 UTC        | Runs e2e tests against a standing integration environment                                                                                               |
+| [`nightly-ephemeral`](https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/periodic-ci-openshift-online-rosa-regional-platform-main-nightly-ephemeral)                     | Daily at 04:00 UTC        | End-to-end: provisions ephemeral environment using `main` rosa-regional-platform branch, runs tests, tears down                                         |
+| [`nightly-integration`](https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/periodic-ci-openshift-online-rosa-regional-platform-main-nightly-integration)                 | Daily at 04:00 UTC        | Runs e2e tests against a standing integration environment                                                                                               |
 | [`ephemeral-resources-janitor`](https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/periodic-ci-openshift-online-rosa-regional-platform-main-ephemeral-resources-janitor) | Weekly (Sunday 12:00 UTC) | Purges leaked AWS resources using [aws-nuke](https://github.com/ekristen/aws-nuke)                                                                      |
 
 ## Build Image
@@ -34,16 +34,7 @@ The [ci/ephemeral-provider/main.py](ci/ephemeral-provider/main.py) script manage
 
 ### Running locally
 
-The recommended way to run ephemeral environments locally is via Make targets. These handle container builds, Vault credential fetching, and state tracking automatically. Credentials are fetched from Vault via OIDC and passed as environment variables to the container — they never touch disk.
-
-```bash
-make ephemeral-provision   # Interactive remote/branch picker, provisions environment
-make ephemeral-teardown    # Interactive picker or BUILD_ID=<id>, tears down environment
-make ephemeral-resync      # Interactive picker or BUILD_ID=<id>, rebases CI branch onto latest source
-make ephemeral-list        # List tracked environments with state
-```
-
-Prerequisites: `fzf`, `vault`, `git`, `python3`, `uv`, and `podman` or `docker`.
+See [Provisioning a Development Environment](../docs/development-environment.md) for the full guide on running ephemeral environments from your local machine via Make targets.
 
 ### Triggering the E2E Job Manually
 

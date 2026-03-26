@@ -89,6 +89,16 @@ resource "aws_iam_role_policy" "codebuild_policy" {
         ]
       },
       {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ]
+        Resource = [
+          "arn:aws:ssm:*:${data.aws_caller_identity.current.account_id}:parameter/infra/*"
+        ]
+      },
+      {
         Effect   = "Allow"
         Action   = "sts:AssumeRole"
         Resource = "arn:aws:iam::*:role/OrganizationAccountAccessRole"
@@ -548,7 +558,7 @@ resource "aws_codepipeline" "regional_pipeline" {
           includes = [var.github_branch]
         }
         file_paths {
-          includes = ["deploy/${var.target_environment}/${var.target_region}/terraform/management/${local.name_prefix}.json", "terraform/config/pipeline-management-cluster/**"]
+          includes = ["deploy/${var.target_environment}/${var.target_region}/pipeline-management-cluster-${local.name_prefix}-inputs/terraform.json", "terraform/config/pipeline-management-cluster/**"]
         }
       }
     }

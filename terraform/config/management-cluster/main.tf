@@ -18,7 +18,6 @@ provider "aws" {
       service-phase = var.service_phase
       cost-center   = var.cost_center
       environment   = var.environment
-      sector        = var.sector
     }
   }
 }
@@ -35,6 +34,9 @@ module "management_cluster" {
   node_group_min_size     = 1
   node_group_max_size     = 2
   node_group_desired_size = 1
+
+  # Instance types (configurable via config.yaml)
+  node_instance_types = var.node_instance_types
 }
 
 # Call the ECS bootstrap module for external bootstrap execution
@@ -80,4 +82,15 @@ module "maestro_agent" {
 
   maestro_agent_cert_json   = file(var.maestro_agent_cert_file)
   maestro_agent_config_json = file(var.maestro_agent_config_file)
+}
+
+# =============================================================================
+# HyperShift OIDC (Private S3 + CloudFront + Pod Identity)
+# =============================================================================
+
+module "hypershift_oidc" {
+  source = "../../modules/hypershift-oidc"
+
+  cluster_id       = var.management_id
+  eks_cluster_name = module.management_cluster.cluster_name
 }

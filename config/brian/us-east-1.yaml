@@ -1,0 +1,9 @@
+regional_cluster:
+  enable_bastion: true
+  # delete: true
+
+management_cluster_defaults:
+  enable_bastion: true
+
+provision_mcs:
+  mc01: {}
