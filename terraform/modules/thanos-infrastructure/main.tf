@@ -7,6 +7,7 @@
 
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
+data "aws_partition" "current" {}
 
 locals {
   bucket_name     = "${var.cluster_id}-thanos-metrics"
@@ -35,7 +36,7 @@ resource "aws_kms_key" "thanos" {
         Sid    = "EnableRootAccess"
         Effect = "Allow"
         Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+          AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
         }
         Action   = "kms:*"
         Resource = "*"
