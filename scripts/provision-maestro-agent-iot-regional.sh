@@ -73,8 +73,6 @@ extract_tfvar() {
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
   log_error "Usage: $0 <path-to-management-cluster-tfvars> [regional-id]"
-  log_info "Example: $0 terraform/config/management-cluster/terraform.tfvars ci-cacae4-regional"
-  log_info "If regional-id is not provided, it must be set via REGIONAL_ID env var."
   exit 1
 fi
 
