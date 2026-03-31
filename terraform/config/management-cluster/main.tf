@@ -91,9 +91,8 @@ module "maestro_agent" {
 module "hypershift_oidc" {
   source = "../../modules/hypershift-oidc"
 
-  cluster_id                     = var.management_id
-  eks_cluster_name               = module.management_cluster.cluster_name
-  openshift_pull_secret_filename = var.openshift_pull_secret_filename
+  cluster_id       = var.management_id
+  eks_cluster_name = module.management_cluster.cluster_name
 }
 
 # =============================================================================
