@@ -122,11 +122,13 @@ When e2e tests fail, the CI job collects pod logs from the RC and MC clusters an
 ### Finding the S3 URIs
 
 Search the e2e build log for lines like:
+
 ```
 mkdir -p /tmp/ci-ca269e-regional-logs && aws s3 cp s3://bastion-log-collection-<account>-<region>-an/<key>.tar.gz ...
 ```
 
 There will be one URI per cluster (RC + each MC). The bucket names follow the pattern:
+
 - RC: `bastion-log-collection-<regional-account-id>-<region>-an`
 - MC: `bastion-log-collection-<management-account-id>-<region>-an`
 
@@ -135,6 +137,7 @@ There will be one URI per cluster (RC + each MC). The bucket names follow the pa
 The CI build log prints ready-to-use download commands. If the user has the right AWS credentials configured, they can run these directly. Prompt them to download and extract the logs if the Prow artifacts don't contain enough detail for diagnosis.
 
 Example commands (from build log):
+
 ```bash
 # RC logs (requires regional account credentials)
 mkdir -p /tmp/ci-ca269e-regional-logs && \
@@ -152,6 +155,7 @@ Note: RC and MC use different AWS accounts, so the user may need to switch crede
 ### Analyzing the logs
 
 Once extracted, the logs are organized as:
+
 ```
 inspect-logs/
   namespaces/<namespace>/
@@ -163,16 +167,17 @@ inspect-logs/
 
 Key namespaces and what to look for:
 
-| Cluster | Namespace | What to check |
-|---------|-----------|---------------|
-| RC | `maestro-server` | Server MQTT connectivity, resource bundle creation |
-| RC | `platform-api` | API errors, registration failures |
-| RC | `argocd` | Sync failures, application health |
-| MC | `maestro-agent` | Agent MQTT connectivity (CONNACK errors), work agent status |
-| MC | `argocd` | Sync failures on MC applications |
-| MC | `hypershift` | HyperShift operator errors |
+| Cluster | Namespace        | What to check                                               |
+| ------- | ---------------- | ----------------------------------------------------------- |
+| RC      | `maestro-server` | Server MQTT connectivity, resource bundle creation          |
+| RC      | `platform-api`   | API errors, registration failures                           |
+| RC      | `argocd`         | Sync failures, application health                           |
+| MC      | `maestro-agent`  | Agent MQTT connectivity (CONNACK errors), work agent status |
+| MC      | `argocd`         | Sync failures on MC applications                            |
+| MC      | `hypershift`     | HyperShift operator errors                                  |
 
 For maestro connectivity issues specifically, check:
+
 ```bash
 # Agent connection errors
 grep -i "connack\|connect\|error\|fail" /tmp/<prefix>-mc01-logs/inspect-logs/namespaces/maestro-agent/pods/*/agent/agent/logs/current.log
