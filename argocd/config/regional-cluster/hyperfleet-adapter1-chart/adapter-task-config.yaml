@@ -123,12 +123,8 @@ spec:
               ? spec.ebscsiRoleArn
               : ""
           description: "Storage ARN of the cluster"
-        - name: "issuerURL"
-          expression: |
-            has(spec.oidcProviderURL) && spec.oidcProviderURL != ""
-              ? spec.oidcProviderURL
-              : ""
-          description: "Issuer URL of the cluster"
+        - name: "cloudUrl"
+          expression: "spec.cloudUrl"
 
       # check if the cluster is not ready
       conditions:
@@ -299,7 +295,7 @@ spec:
                           value: owned
                         - key: red-hat-managed
                           value: "true"
-                  issuerURL: "{{ .issuerURL }}"
+                  issuerURL: "{{ .cloudUrl }}/{{ .clusterId }}"
                   services:
                     - service: APIServer
                       servicePublishingStrategy:
@@ -364,7 +360,7 @@ spec:
 
           deleteOption:
             propagationPolicy: "Foreground"
-            gracePeriodSeconds: 30          
+            gracePeriodSeconds: 30
 
           manifestConfigs:
             - resourceIdentifier:
