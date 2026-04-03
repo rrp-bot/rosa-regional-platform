@@ -18,6 +18,18 @@
         "current": { "text": "Thanos", "value": "Thanos" },
         "hide": 0,
         "refresh": 1
+      },
+      {
+        "name": "cluster",
+        "type": "query",
+        "label": "Cluster",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(kube_node_info, cluster)",
+        "refresh": 2,
+        "multi": false,
+        "includeAll": true,
+        "allValue": ".*",
+        "sort": 1
       }
     ]
   },
@@ -31,7 +43,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(kube_node_status_condition{condition=\"Ready\",status=\"true\"})",
+          "expr": "count(kube_node_status_condition{condition=\"Ready\",status=\"true\",cluster=~\"$cluster\"})",
           "legendFormat": "Ready"
         }
       ],
@@ -62,7 +74,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(kube_pod_status_phase{phase=\"Running\"})",
+          "expr": "count(kube_pod_status_phase{phase=\"Running\",cluster=~\"$cluster\"})",
           "legendFormat": "Running"
         }
       ],
@@ -92,7 +104,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))",
+          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\",cluster=~\"$cluster\"}[5m])))",
           "legendFormat": "CPU %"
         }
       ],
@@ -127,7 +139,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))",
+          "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes{cluster=~\"$cluster\"}) / sum(node_memory_MemTotal_bytes{cluster=~\"$cluster\"}))",
           "legendFormat": "Memory %"
         }
       ],
@@ -162,7 +174,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (node) (rate(node_cpu_seconds_total{mode!=\"idle\"}[5m])) / sum by (node) (kube_node_status_capacity{resource=\"cpu\"}) * 100",
+          "expr": "sum by (node) (rate(node_cpu_seconds_total{mode!=\"idle\",cluster=~\"$cluster\"}[5m])) / sum by (node) (kube_node_status_capacity{resource=\"cpu\",cluster=~\"$cluster\"}) * 100",
           "legendFormat": "{{ instance }}"
         }
       ],
@@ -188,7 +200,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * (1 - sum by (instance) (node_memory_MemAvailable_bytes) / sum by (instance) (node_memory_MemTotal_bytes))",
+          "expr": "100 * (1 - sum by (instance) (node_memory_MemAvailable_bytes{cluster=~\"$cluster\"}) / sum by (instance) (node_memory_MemTotal_bytes{cluster=~\"$cluster\"}))",
           "legendFormat": "{{ instance }}"
         }
       ],
@@ -214,7 +226,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (namespace) (kube_pod_status_phase{phase=\"Running\"})",
+          "expr": "count by (namespace) (kube_pod_status_phase{phase=\"Running\",cluster=~\"$cluster\"})",
           "legendFormat": "{{ namespace }}"
         }
       ],

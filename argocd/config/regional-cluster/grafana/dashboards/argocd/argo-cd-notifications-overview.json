@@ -175,7 +175,9 @@
                "type": "prometheus",
                "uid": "${datasource}"
             },
-            "hide": 2,
+            "hide": 0,
+            "includeAll": true,
+            "allValue": ".*",
             "label": "Cluster",
             "name": "cluster",
             "query": "label_values(argocd_app_info{}, cluster)",
