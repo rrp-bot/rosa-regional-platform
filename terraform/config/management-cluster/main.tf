@@ -5,9 +5,6 @@ provider "aws" {
   # do not support FIPS endpoints and will fail if this is set to true.
   use_fips_endpoint = can(regex("^(us|us-gov)-", var.region)) ? true : false
 
-  # Conditionally assume role for cross-account deployment (local dev only)
-  # When target_account_id is set, assume OrganizationAccountAccessRole in target account
-  # In pipelines, target_account_id is empty - ambient creds are already the target account
   dynamic "assume_role" {
     for_each = var.target_account_id != "" ? [1] : []
     content {
@@ -15,6 +12,10 @@ provider "aws" {
       session_name = "terraform-management-${var.management_id}"
     }
   }
+
+  # Guard against accidental apply in the wrong account (local dev only — in
+  # pipelines target_account_id is empty and ambient creds are already scoped).
+  allowed_account_ids = var.target_account_id != "" ? [var.target_account_id] : null
 
   default_tags {
     tags = {
@@ -27,19 +28,20 @@ provider "aws" {
 }
 
 # Regional account provider for OIDC bucket resources.
-# Uses OrganizationAccountAccessRole for local dev (same pattern as primary provider).
-# In pipelines, ambient creds already have cross-account access.
+# Always assumes a role into the regional account — unlike the primary provider,
+# the regional provider must cross account boundaries both in pipelines and local dev.
+# Set regional_oidc_role_arn to a least-privilege role in production; falls back
+# to OrganizationAccountAccessRole for local dev when left empty.
 provider "aws" {
   alias  = "regional"
   region = var.region
 
-  dynamic "assume_role" {
-    for_each = var.target_account_id != "" ? [1] : []
-    content {
-      role_arn     = "arn:aws:iam::${var.regional_aws_account_id}:role/OrganizationAccountAccessRole"
-      session_name = "terraform-oidc-${var.management_id}"
-    }
+  assume_role {
+    role_arn     = var.regional_oidc_role_arn != "" ? var.regional_oidc_role_arn : "arn:aws:iam::${var.regional_aws_account_id}:role/OrganizationAccountAccessRole"
+    session_name = "terraform-oidc-${var.management_id}"
   }
+
+  allowed_account_ids = [var.regional_aws_account_id]
 
   default_tags {
     tags = {

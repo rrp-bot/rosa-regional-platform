@@ -34,6 +34,21 @@ resource "aws_s3_bucket_public_access_block" "oidc" {
   restrict_public_buckets = true
 }
 
+# Enable server-side encryption (AES-256) as defence-in-depth.
+# OIDC documents are public via CloudFront, but encrypting at rest aligns with
+# platform security posture and costs nothing with SSE-S3.
+resource "aws_s3_bucket_server_side_encryption_configuration" "oidc" {
+  provider = aws.regional
+  bucket   = aws_s3_bucket.oidc.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
+}
+
 # Allow CloudFront OAC to read objects, and the HyperShift operator
 # (management account) to write objects cross-account.
 resource "aws_s3_bucket_policy" "oidc" {
@@ -41,7 +56,7 @@ resource "aws_s3_bucket_policy" "oidc" {
   bucket   = aws_s3_bucket.oidc.id
 
   # Ensure public access block is in place before applying the policy
-  depends_on = [aws_s3_bucket_public_access_block.oidc]
+  depends_on = [aws_s3_bucket_public_access_block.oidc, aws_s3_bucket_server_side_encryption_configuration.oidc]
 
   policy = jsonencode({
     Version = "2012-10-17"

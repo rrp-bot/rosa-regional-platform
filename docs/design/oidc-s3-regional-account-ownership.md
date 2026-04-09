@@ -1,6 +1,7 @@
 # OIDC S3 Bucket: Regional Account Ownership
 
 **Last Updated Date**: 2026-04-09
+**Status**: Accepted
 
 ## Summary
 
@@ -51,3 +52,24 @@ The HyperShift OIDC S3 bucket and CloudFront distribution are moved from the man
 
 - The provider alias pattern is already established in the codebase (`aws.central` in RC Terraform), so operators are familiar with the cross-account model
 - Terraform state for OIDC resources remains in the MC state file, so `terraform destroy` on an MC cleanly removes its OIDC bucket and CloudFront distribution
+
+## Follow-up: Dedicated Regional Provisioner Role
+
+The `aws.regional` Terraform provider currently falls back to
+`OrganizationAccountAccessRole` when `var.regional_oidc_role_arn` is not set.
+This role grants admin-level access to the regional account and is not
+appropriate for production use.
+
+A dedicated least-privilege IAM role (`TerraformOIDCProvisioner` or equivalent)
+should be created in `terraform/config/regional-cluster/` with the following
+minimum permissions:
+
+- **S3**: `CreateBucket`, `DeleteBucket`, `GetBucket*`, `PutBucket*`,
+  `DeleteBucketPolicy`, `ListBucket` scoped to `arn:aws:s3:::hypershift-*-oidc-*`
+- **CloudFront**: `CreateDistribution`, `GetDistribution`, `UpdateDistribution`,
+  `DeleteDistribution`, `TagResource`, `CreateOriginAccessControl`,
+  `GetOriginAccessControl`, `UpdateOriginAccessControl`, `DeleteOriginAccessControl`
+- **STS**: `GetCallerIdentity`
+
+Once created, its ARN should be passed as `regional_oidc_role_arn` in the
+management cluster config for all non-dev environments.
