@@ -5,54 +5,135 @@
 
 ## Summary
 
-The HyperShift OIDC S3 bucket and CloudFront distribution are provisioned in the regional cluster (RC) AWS account during the IoT minting pipeline step, which already runs in the RC account context. The management cluster (MC) Terraform receives the bucket name, ARN, region, and CloudFront domain as input variables (read from the IoT minting state) and uses them to configure IAM policies and Secrets Manager. Cross-account write access is granted to the HyperShift operator via a dual IAM role policy (MC) and S3 bucket policy (RC) model with an `aws:PrincipalAccount` condition for defence-in-depth.
+The HyperShift OIDC S3 bucket and CloudFront distribution are provisioned as a single shared
+resource per region in the regional cluster (RC) AWS account, owned by
+`terraform/config/regional-cluster/`. All management clusters (MCs) in the region write to the
+same bucket, with each hosted cluster's documents stored under a path prefix keyed by hosted
+cluster ID (`/{hosted_cluster_id}/`). Cross-account write access is granted to any IAM principal
+within the AWS Organization via `aws:PrincipalOrgID`, eliminating the need to update the bucket
+policy as new MCs are provisioned.
 
 ## Context
 
-- **Problem Statement**: The OIDC S3 bucket was provisioned in each management cluster's AWS account. As the platform scales to multiple MCs per region, this creates per-account S3 and CloudFront resources that logically belong to the region, not to individual MCs. Consolidating OIDC infrastructure in the regional account aligns ownership with the regional isolation model and simplifies resource management.
-- **Constraints**: The HyperShift operator runs on the MC and must retain write access to the S3 bucket. No cross-stack Terraform state references are permitted between RC and MC configurations. The MC pipeline must not require a cross-account provider alias for OIDC resources.
-- **Assumptions**: The IoT minting pipeline step already runs in the RC account context and stores its Terraform state in the RC account's S3 bucket. The HyperShift operator IAM role name follows the predictable pattern `{management_cluster_id}-hypershift-operator`, allowing the bucket policy to reference it before the MC infrastructure is deployed.
+- **Problem Statement**: The OIDC S3 bucket was initially provisioned in each management
+  cluster's AWS account, giving each MC its own CloudFront URL. As the platform scales to
+  multiple MCs per region, each MC's CloudFront domain becomes the OIDC issuer URL for all
+  hosted clusters it runs. Migrating a hosted cluster between MCs would change its issuer URL,
+  invalidating all workload identity tokens and requiring credential rotation across all workloads
+  in the cluster. A stable, regional OIDC endpoint is required.
+- **Constraints**: The HyperShift operator runs on the MC and must retain write access to the S3
+  bucket. No cross-stack Terraform state references are permitted between RC and MC
+  configurations. The MC pipeline must not require a cross-account provider alias.
+- **Assumptions**: The MC provisioning pipeline already reads outputs from RC Terraform state
+  (for the RHOBS API URL) before switching to the MC account context. The same pattern can carry
+  OIDC bucket details to the MC Terraform.
+
+## Decision
+
+One shared S3 bucket + CloudFront distribution per region, provisioned by
+`terraform/config/regional-cluster/` as part of RC infrastructure. The bucket is named
+`hypershift-oidc-{regional_id}-{rc_account_id}`.
+
+### Bucket policy: `aws:PrincipalOrgID`
+
+The bucket policy allows any IAM principal in the AWS Organization to write OIDC documents.
+No per-account statement updates are required when a new MC is added:
+
+```json
+{
+  "Sid": "AllowHyperShiftOperatorOrgWrite",
+  "Effect": "Allow",
+  "Principal": { "AWS": "*" },
+  "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+  "Resource": "arn:aws:s3:::hypershift-oidc-<regional_id>-<rc_account_id>/*",
+  "Condition": {
+    "StringEquals": { "aws:PrincipalOrgID": "<org_id>" }
+  }
+}
+```
+
+The HyperShift operator IAM role policy (in the MC account) still explicitly allows the same
+S3 actions on the shared bucket ARN. Both policies must permit the action for cross-account
+access to succeed (standard AWS cross-account dual-authorization model).
+
+### How MC Terraform learns the bucket details
+
+The MC provisioning pipeline (`provision-infra-mc.sh`) reads OIDC outputs from RC Terraform
+state in the same step that reads the RHOBS API URL — before switching to the MC account:
+
+```
+provision-infra-mc.sh
+  ├─ use_rc_account
+  ├─ source read-iot-state.sh            # reads Maestro IoT cert/config from IoT state
+  ├─ terraform init (regional-cluster state)
+  ├─ terraform output oidc_bucket_name   → TF_VAR_oidc_bucket_name
+  ├─ terraform output oidc_bucket_arn    → TF_VAR_oidc_bucket_arn
+  ├─ terraform output oidc_bucket_region → TF_VAR_oidc_bucket_region
+  ├─ terraform output oidc_cloudfront_domain → TF_VAR_oidc_cloudfront_domain
+  ├─ use_mc_account
+  └─ terraform apply management-cluster/
+```
+
+The IoT minting step (`iot-mint.sh`) creates only Maestro IoT certificates/policies;
+OIDC bucket provisioning has been removed from the minting step entirely.
 
 ## Alternatives Considered
 
-1. **Separate RC Terraform module**: Create a new module in `terraform/config/regional-cluster/` that provisions the S3 bucket and CloudFront, with outputs consumed by the MC Terraform via remote state. Rejected because it introduces cross-stack state dependencies and breaks per-MC lifecycle ownership (the RC Terraform runs once per region, not per MC).
-2. **Provider alias in MC Terraform**: Add an `aws.regional` provider alias to the existing MC Terraform that assumes a role in the RC account for S3 and CloudFront resources. Rejected because it widens the MC pipeline's blast radius into the RC account and requires managing a cross-account `OrganizationAccountAccessRole` or dedicated provisioner role from the MC Terraform.
-3. **IoT minting step (chosen)**: Provision the OIDC S3 bucket and CloudFront distribution in the existing IoT minting pipeline step, which already runs in the RC account. Outputs are stored in the IoT Terraform state and read by `read-iot-state.sh` before the MC Terraform apply. This follows the established pattern for IoT certificate provisioning.
-4. **Shared S3 bucket across all MCs**: A single regional bucket with per-MC path prefixes. Rejected because it couples MC lifecycles and complicates teardown (deleting one MC's resources requires careful prefix-scoped cleanup rather than bucket deletion).
+1. **Per-MC bucket in RC account (previous implementation)**: One bucket per MC, provisioned
+   during the IoT minting step, with a per-account `aws:PrincipalAccount` bucket policy
+   condition. Rejected because each MC gets a different CloudFront URL, making hosted cluster
+   migration between MCs impossible without rotating workload credentials.
 
-## Design Rationale
+2. **Per-MC bucket in MC account**: Original approach. Rejected for the same reason, plus
+   the additional concern that OIDC infrastructure logically belongs to the region, not to
+   individual MCs.
 
-- **Justification**: The IoT minting step already runs in the RC account context before MC deployment. Adding OIDC bucket provisioning to this step eliminates the need for a cross-account provider alias in the MC Terraform while maintaining per-MC lifecycle ownership. The HyperShift operator role ARN is predictable at mint time (`{cluster_id}-hypershift-operator`), so the S3 bucket policy can grant cross-account write access before the role exists --- AWS validates the account at policy evaluation time, not the role.
-- **Evidence**: The IoT minting step has been in production use for Maestro agent certificate provisioning, validating the pattern of provisioning RC-account resources in a pipeline step that precedes MC deployment.
-- **Comparison**: Unlike the provider alias approach, the MC Terraform never assumes a role in the RC account, eliminating the blast radius concern. Unlike a separate RC module, there are no cross-stack state dependencies --- the `read-iot-state.sh` script reads outputs from the IoT state and exports them as `TF_VAR_*` environment variables.
+3. **Provider alias in MC Terraform**: Add an `aws.regional` provider alias to MC Terraform
+   that assumes a role in the RC account to create shared OIDC resources. Rejected because
+   it widens MC Terraform's blast radius into the RC account on every apply.
+
+4. **Dedicated OIDC writer role in RC account**: Create a single RC-account role that all MC
+   HyperShift operators assume. Rejected: adds a hop without improving security, and the
+   trust policy would need updating per MC.
+
+5. **SSM Parameter Store for bucket details**: Write bucket details to SSM instead of reading
+   RC Terraform outputs. Rejected: RC Terraform outputs are already authoritative; SSM would
+   be an unsynchronised copy.
 
 ## Consequences
 
 ### Positive
 
-- Regional infrastructure (S3, CloudFront) is owned by the regional account, aligning with the regional isolation architecture
-- Per-MC lifecycle ownership is preserved: creating or destroying an MC automatically manages its OIDC resources (via the IoT minting step's create/destroy logic)
-- No cross-account provider alias or `OrganizationAccountAccessRole` assumption from MC Terraform --- the MC pipeline's blast radius is limited to the MC account
-- No cross-stack Terraform state dependencies --- outputs flow via `TF_VAR_*` environment variables
-- The `aws:PrincipalAccount` condition on the bucket policy provides defence-in-depth against confused deputy attacks
+- **Stable issuer URL** — The CloudFront domain never changes, regardless of which MC
+  hosts a given control plane. Hosted cluster OIDC credentials survive MC migrations.
+- **Zero-touch MC scaling** — New MC accounts automatically inherit write access via
+  `aws:PrincipalOrgID`; no bucket policy update is needed.
+- **Clean ownership** — OIDC bucket lifecycle is tied to the region, not individual MCs.
+  `terraform destroy` on the regional cluster cleans up the shared OIDC endpoint.
+- **No MC blast radius into RC** — MC Terraform never assumes a role in the RC account.
 
-### Negative
+### Negative / Trade-offs
 
-- Existing environments require migration: the OIDC issuer URL (CloudFront domain) will change, requiring hosted cluster OIDC configurations to be updated
-- The IoT minting step now provisions additional resources (S3, CloudFront), increasing its execution time and scope
-- The HyperShift operator role ARN must follow a predictable naming convention; any change to the role naming requires updating the oidc-bucket module
+- **`aws:PrincipalOrgID` scope** — Any Organisation member account principal with appropriate
+  IAM permissions can write to the bucket. The HyperShift operator role policy limits this in
+  practice, but the bucket policy alone is less restrictive than a named-principal policy.
+- **New required variable** — `org_id` is a new required input for `terraform/config/regional-cluster/`.
+  Existing deploy configs must be updated before the next RC Terraform apply.
+- **RC must be provisioned first** — The RC Terraform apply must complete before the first MC in
+  a region can be provisioned (existing sequencing requirement, now also required for OIDC).
 
 ## Cross-Cutting Concerns
 
-### Security:
+### Security
 
-- Cross-account S3 access uses the principle of least privilege: the bucket policy grants only `PutObject`, `GetObject`, and `DeleteObject` (no `ListBucket`) and is scoped to the MC account via `aws:PrincipalAccount`
-- The IAM role policy in the MC account and the bucket policy in the RC account form a dual-authorization model; both must permit access for writes to succeed
-- CloudFront OAC remains the sole read path; the bucket stays fully private
-- The MC Terraform no longer requires any cross-account IAM role assumption
+- Cross-account S3 access uses the dual-authorization model: both the MC IAM role policy and
+  the RC bucket policy must permit the action.
+- CloudFront OAC is the sole read path; the bucket blocks all public access.
+- The HyperShift operator IAM role (MC account, EKS Pod Identity) is scoped to the minimum
+  required S3 actions on the shared bucket ARN.
 
-### Operability:
+### Operability
 
-- The IoT minting step follows the same create/destroy pattern for OIDC resources as it does for IoT certificates, so operators use the same workflow
-- Terraform state for OIDC resources lives in the IoT state file in the RC account; `terraform destroy` via the IoT minting step cleanly removes the OIDC bucket and CloudFront distribution
-- The `read-iot-state.sh` script exports OIDC outputs alongside IoT certificate outputs, keeping the MC deploy buildspec unchanged in structure
+- RC Terraform manages the full lifecycle of the shared bucket and CloudFront distribution.
+- The MC deploy pipeline reads OIDC outputs from RC state using the existing pattern established
+  for the RHOBS API URL, keeping the build spec structure consistent.

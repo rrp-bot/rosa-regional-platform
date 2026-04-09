@@ -48,8 +48,8 @@ else
     use_rc_account
     source scripts/read-iot-state.sh "$RESOLVED_REGIONAL_ACCOUNT_ID" "$CLUSTER_ID" "$TARGET_REGION"
 
-    # Read RHOBS API URL from RC terraform state (custom domain or invoke URL)
-    echo "Reading API URL from RC terraform state..."
+    # Read RC Terraform outputs (RHOBS API URL and shared OIDC bucket details)
+    echo "Reading outputs from RC terraform state..."
     _RC_STATE_BUCKET="terraform-state-${RESOLVED_REGIONAL_ACCOUNT_ID}-${TARGET_REGION}"
     _RC_REGIONAL_ID=$(jq -r '.regional_id // "regional"' "deploy/${ENVIRONMENT}/${TARGET_REGION}/pipeline-regional-cluster-inputs/terraform.json" 2>/dev/null || echo "regional")
     _RC_STATE_KEY="regional-cluster/${_RC_REGIONAL_ID}.tfstate"
@@ -60,7 +60,19 @@ else
         -backend-config="region=${TARGET_REGION}" \
         -backend-config="use_lockfile=true" >/dev/null 2>&1)
     export TF_VAR_rhobs_api_url=$(cd "$_RC_TF_DIR" && terraform output -raw rhobs_api_url 2>/dev/null || echo "")
-    echo "  RHOBS API URL:  ${TF_VAR_rhobs_api_url:-<not available>}"
+    export TF_VAR_oidc_bucket_name=$(cd "$_RC_TF_DIR" && terraform output -raw oidc_bucket_name 2>/dev/null || echo "")
+    export TF_VAR_oidc_bucket_arn=$(cd "$_RC_TF_DIR" && terraform output -raw oidc_bucket_arn 2>/dev/null || echo "")
+    export TF_VAR_oidc_bucket_region=$(cd "$_RC_TF_DIR" && terraform output -raw oidc_bucket_region 2>/dev/null || echo "")
+    export TF_VAR_oidc_cloudfront_domain=$(cd "$_RC_TF_DIR" && terraform output -raw oidc_cloudfront_domain 2>/dev/null || echo "")
+    echo "  RHOBS API URL:      ${TF_VAR_rhobs_api_url:-<not available>}"
+    echo "  OIDC bucket:        ${TF_VAR_oidc_bucket_name:-<not available>}"
+    echo "  OIDC CloudFront:    ${TF_VAR_oidc_cloudfront_domain:-<not available>}"
+
+    if [ -z "${TF_VAR_oidc_bucket_name:-}" ]; then
+        echo "ERROR: Failed to read oidc_bucket_name from RC terraform state" >&2
+        echo "Ensure regional cluster has been provisioned with the oidc_bucket module." >&2
+        exit 1
+    fi
 fi
 
 # =====================================================================

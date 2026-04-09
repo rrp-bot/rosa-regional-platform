@@ -6,14 +6,15 @@
 # stays fully private.
 #
 # The CloudFront domain (e.g. d1234abcdef.cloudfront.net) becomes the OIDC
-# issuer base URL. Each hosted cluster's documents live under a path prefix:
-#   https://<domain>/<cluster-name>/.well-known/openid-configuration
-#   https://<domain>/<cluster-name>/keys.json
+# issuer base URL for all hosted clusters in this region. Each hosted
+# cluster's documents live under a path prefix:
+#   https://<domain>/<hosted_cluster_id>/.well-known/openid-configuration
+#   https://<domain>/<hosted_cluster_id>/keys.json
 # =============================================================================
 
 resource "aws_cloudfront_origin_access_control" "oidc" {
-  name                              = "${var.management_cluster_id}-oidc"
-  description                       = "OAC for HyperShift OIDC S3 bucket"
+  name                              = "${var.regional_id}-oidc"
+  description                       = "OAC for regional HyperShift OIDC S3 bucket"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
@@ -21,7 +22,7 @@ resource "aws_cloudfront_origin_access_control" "oidc" {
 
 resource "aws_cloudfront_distribution" "oidc" {
   enabled     = true
-  comment     = "OIDC endpoint for management cluster ${var.management_cluster_id}"
+  comment     = "OIDC endpoint for regional cluster ${var.regional_id} (shared by all management clusters)"
   price_class = "PriceClass_100" # US, Canada, Europe only --- cheapest
 
   origin {
@@ -62,7 +63,7 @@ resource "aws_cloudfront_distribution" "oidc" {
   tags = merge(
     local.common_tags,
     {
-      Name = "${var.management_cluster_id}-oidc"
+      Name = "${var.regional_id}-oidc"
     }
   )
 }

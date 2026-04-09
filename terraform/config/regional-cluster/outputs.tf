@@ -379,3 +379,27 @@ output "thanos_helm_values" {
   description = "Helm values for Thanos Receiver chart (use with -f flag)"
   value       = module.thanos_infrastructure.helm_values
 }
+
+# =============================================================================
+# HyperShift OIDC Bucket Outputs
+# =============================================================================
+
+output "oidc_bucket_name" {
+  description = "Shared regional OIDC S3 bucket name (consumed by management cluster Terraform)"
+  value       = module.oidc_bucket.bucket_name
+}
+
+output "oidc_bucket_arn" {
+  description = "Shared regional OIDC S3 bucket ARN"
+  value       = module.oidc_bucket.bucket_arn
+}
+
+output "oidc_bucket_region" {
+  description = "AWS region where the shared OIDC S3 bucket is provisioned"
+  value       = module.oidc_bucket.bucket_region
+}
+
+output "oidc_cloudfront_domain" {
+  description = "CloudFront domain name for the shared regional OIDC endpoint (prefix with https://)"
+  value       = module.oidc_bucket.cloudfront_domain
+}

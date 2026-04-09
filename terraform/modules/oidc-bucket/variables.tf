@@ -1,20 +1,20 @@
-variable "management_cluster_id" {
-  description = "Management cluster identifier, used for S3 bucket naming and CloudFront comment"
+variable "regional_id" {
+  description = "Regional cluster identifier, used for S3 bucket naming and CloudFront comment"
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z0-9-]+$", var.management_cluster_id))
-    error_message = "management_cluster_id must contain only lowercase letters, numbers, and hyphens."
+    condition     = can(regex("^[a-z0-9-]+$", var.regional_id))
+    error_message = "regional_id must contain only lowercase letters, numbers, and hyphens."
   }
 }
 
-variable "mc_account_id" {
-  description = "AWS account ID of the management cluster --- used to grant the HyperShift operator cross-account write access to the OIDC bucket"
+variable "org_id" {
+  description = "AWS Organization ID — used in the bucket policy to grant write access to any account within the org (all management clusters)"
   type        = string
 
   validation {
-    condition     = can(regex("^[0-9]{12}$", var.mc_account_id))
-    error_message = "mc_account_id must be a 12-digit AWS account ID."
+    condition     = can(regex("^o-[a-z0-9]{10,32}$", var.org_id))
+    error_message = "org_id must be a valid AWS Organization ID (e.g., o-aa111bb222cc)."
   }
 }
 

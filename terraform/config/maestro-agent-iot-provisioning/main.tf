@@ -25,11 +25,3 @@ module "maestro_agent_iot" {
     }
   )
 }
-
-module "oidc_bucket" {
-  source = "../../modules/oidc-bucket"
-
-  management_cluster_id = var.management_cluster_id
-  mc_account_id         = var.mc_account_id
-  tags                  = var.tags
-}

@@ -288,4 +288,17 @@ variable "thanos_service_account" {
   default     = "thanos-operator"
 }
 
+# =============================================================================
+# HyperShift OIDC Configuration
+# =============================================================================
+
+variable "org_id" {
+  description = "AWS Organization ID — used in the shared OIDC S3 bucket policy to allow any management cluster account in the org to write OIDC documents"
+  type        = string
+
+  validation {
+    condition     = can(regex("^o-[a-z0-9]{10,32}$", var.org_id))
+    error_message = "org_id must be a valid AWS Organization ID (e.g., o-aa111bb222cc)."
+  }
+}
 

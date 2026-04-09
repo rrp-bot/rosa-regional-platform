@@ -3,6 +3,10 @@
 #
 # Fully private --- only accessible via CloudFront (OAC) for reads and the
 # HyperShift operator (cross-account Pod Identity) for writes.
+#
+# The bucket policy uses aws:PrincipalOrgID so any management cluster account
+# within the AWS Organization can write OIDC documents without requiring
+# per-account policy updates when new management clusters are provisioned.
 # =============================================================================
 
 resource "aws_s3_bucket" "oidc" {
@@ -57,10 +61,10 @@ resource "aws_s3_bucket_policy" "oidc" {
         }
       },
       {
-        Sid    = "AllowHyperShiftOperatorCrossAccount"
+        Sid    = "AllowHyperShiftOperatorOrgWrite"
         Effect = "Allow"
         Principal = {
-          AWS = local.hypershift_operator_role_arn
+          AWS = "*"
         }
         Action = [
           "s3:PutObject",
@@ -70,7 +74,7 @@ resource "aws_s3_bucket_policy" "oidc" {
         Resource = "${aws_s3_bucket.oidc.arn}/*"
         Condition = {
           StringEquals = {
-            "aws:PrincipalAccount" = var.mc_account_id
+            "aws:PrincipalOrgID" = var.org_id
           }
         }
       },

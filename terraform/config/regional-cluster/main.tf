@@ -250,6 +250,24 @@ module "hyperfleet_infrastructure" {
 }
 
 # =============================================================================
+# HyperShift OIDC Bucket Module
+#
+# Creates a single shared S3 bucket + CloudFront distribution per region for
+# HyperShift OIDC discovery documents. All management clusters in this region
+# write to the same bucket, with hosted cluster docs stored at path prefixes:
+#   /{hosted_cluster_id}/.well-known/openid-configuration
+#   /{hosted_cluster_id}/keys.json
+# =============================================================================
+
+module "oidc_bucket" {
+  source = "../../modules/oidc-bucket"
+
+  regional_id = var.regional_id
+  org_id      = var.org_id
+  tags        = {}
+}
+
+# =============================================================================
 # Thanos Infrastructure Module (Observability)
 # =============================================================================
 
