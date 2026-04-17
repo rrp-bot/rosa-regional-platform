@@ -135,14 +135,14 @@ resource "aws_api_gateway_gateway_response" "unauthorized" {
   status_code   = "401"
 
   response_parameters = {
-    "gatewayresponse.header.Warning" = "'${local.system_use_notification}'"
+    "gatewayresponse.header.Warning"                   = "'${local.system_use_notification}'"
     "gatewayresponse.header.X-System-Use-Notification" = "'${local.system_use_notification}'"
   }
 
   response_templates = {
     "application/json" = jsonencode({
-      message                 = "Unauthorized"
-      systemUseNotification   = local.system_use_notification
+      message               = "Unauthorized"
+      systemUseNotification = local.system_use_notification
     })
   }
 }
@@ -153,14 +153,14 @@ resource "aws_api_gateway_gateway_response" "access_denied" {
   status_code   = "403"
 
   response_parameters = {
-    "gatewayresponse.header.Warning" = "'${local.system_use_notification}'"
+    "gatewayresponse.header.Warning"                   = "'${local.system_use_notification}'"
     "gatewayresponse.header.X-System-Use-Notification" = "'${local.system_use_notification}'"
   }
 
   response_templates = {
     "application/json" = jsonencode({
-      message                 = "Access Denied"
-      systemUseNotification   = local.system_use_notification
+      message               = "Access Denied"
+      systemUseNotification = local.system_use_notification
     })
   }
 }
@@ -170,7 +170,7 @@ resource "aws_api_gateway_gateway_response" "default_4xx" {
   response_type = "DEFAULT_4XX"
 
   response_parameters = {
-    "gatewayresponse.header.Warning" = "'${local.system_use_notification}'"
+    "gatewayresponse.header.Warning"                   = "'${local.system_use_notification}'"
     "gatewayresponse.header.X-System-Use-Notification" = "'${local.system_use_notification}'"
   }
 }
