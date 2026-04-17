@@ -252,3 +252,25 @@ resource "aws_api_gateway_gateway_response" "default_4xx" {
     "gatewayresponse.header.X-System-Use-Notification" = "'${local.system_use_notification}'"
   }
 }
+
+# -----------------------------------------------------------------------------
+# FedRAMP CM-07: Least Functionality — API Gateway Method Settings
+#
+# Restrict unnecessary capabilities: enable detailed metrics and throttling,
+# disable execution logging at the method level to avoid PII in logs, and
+# enforce that only necessary methods/capabilities are active.
+# -----------------------------------------------------------------------------
+
+resource "aws_api_gateway_method_settings" "main" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  stage_name  = aws_api_gateway_stage.main.stage_name
+  method_path = "*/*"
+
+  settings {
+    metrics_enabled        = var.metrics_enabled
+    logging_level          = var.logging_level
+    data_trace_enabled     = var.data_trace_enabled
+    throttling_burst_limit = var.throttling_burst_limit
+    throttling_rate_limit  = var.throttling_rate_limit
+  }
+}
