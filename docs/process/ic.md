@@ -10,7 +10,9 @@ There is no expectation for the IC to be available outside of Business Hours. Th
 
 This role should not prevent the IC from working on their project tasks. If the workload becomes overwhelming, reach out to the team for help.
 
-The IC is expected to use AI and write automation to reduce the burden on themselves and future ICs. **Make the next IC's shift easier than yours!** Aspirationally, this role should not exist.
+The IC is expected to use AI and write automation to reduce the burden on themselves and future ICs. Aspirationally, this role should not exist.
+
+**Make the next IC's shift easier than yours!**. 
 
 ## Responsibilities
 
