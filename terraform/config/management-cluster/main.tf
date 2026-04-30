@@ -18,12 +18,14 @@ provider "aws" {
 
   default_tags {
     tags = {
-      app-code      = var.app_code
-      service-phase = var.service_phase
-      cost-center   = var.cost_center
-      owner         = var.owner
-      organization  = var.organization
-      environment   = var.environment
+      app                    = var.app
+      app-code               = var.app_code
+      cost-center            = var.cost_center
+      managed_by_integration = var.managed_by_integration
+      organization           = var.organization
+      owner                  = var.owner
+      service-phase          = var.service_phase
+      environment            = var.environment
     }
   }
 }

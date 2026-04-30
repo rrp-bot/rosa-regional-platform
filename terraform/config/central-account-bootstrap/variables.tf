@@ -77,6 +77,18 @@ variable "organization" {
   default     = "placeholder"
 }
 
+variable "managed_by_integration" {
+  description = "Integration that manages these resources"
+  type        = string
+  default     = "terraform"
+}
+
+variable "app" {
+  description = "Application identifier for resource tagging"
+  type        = string
+  default     = "rosa"
+}
+
 # =============================================================================
 # Notifications Configuration
 # =============================================================================

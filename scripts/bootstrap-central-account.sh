@@ -308,6 +308,8 @@ if [ -f "$_PROVISIONER_JSON" ]; then
     COST_CENTER=$(jq -r '.cost_center // "000"' "$_PROVISIONER_JSON")
     OWNER=$(jq -r '.owner // "placeholder"' "$_PROVISIONER_JSON")
     ORGANIZATION=$(jq -r '.organization // "placeholder"' "$_PROVISIONER_JSON")
+    MANAGED_BY_INTEGRATION=$(jq -r '.managed_by_integration // "terraform"' "$_PROVISIONER_JSON")
+    APP=$(jq -r '.app // "rosa"' "$_PROVISIONER_JSON")
     echo "Loaded tags from: $_PROVISIONER_JSON"
 else
     APP_CODE="infra"
@@ -315,6 +317,8 @@ else
     COST_CENTER="000"
     OWNER="placeholder"
     ORGANIZATION="placeholder"
+    MANAGED_BY_INTEGRATION="terraform"
+    APP="rosa"
     echo "ℹ️  No rendered config found at $_PROVISIONER_JSON, using default tags"
 fi
 
@@ -329,8 +333,10 @@ slack_webhook_ssm_param = "${SLACK_WEBHOOK_SSM_PARAM}"
 app_code              = "${APP_CODE}"
 service_phase         = "${SERVICE_PHASE}"
 cost_center           = "${COST_CENTER}"
-owner                 = "${OWNER}"
-organization          = "${ORGANIZATION}"
+owner                  = "${OWNER}"
+organization           = "${ORGANIZATION}"
+managed_by_integration = "${MANAGED_BY_INTEGRATION}"
+app                    = "${APP}"
 EOF
 
 echo "Terraform configuration created (terraform.tfvars)"

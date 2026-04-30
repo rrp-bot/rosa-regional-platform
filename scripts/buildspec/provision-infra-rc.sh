@@ -50,6 +50,8 @@ export TF_VAR_service_phase="${SERVICE_PHASE}"
 export TF_VAR_cost_center="${COST_CENTER}"
 export TF_VAR_owner="${OWNER}"
 export TF_VAR_organization="${ORGANIZATION}"
+export TF_VAR_managed_by_integration="${MANAGED_BY_INTEGRATION}"
+export TF_VAR_app="${APP}"
 
 # Set repository URL and branch with proper fallback handling for set -u
 # Note: CODEBUILD_SOURCE_VERSION contains S3 artifact location, not git branch
@@ -104,6 +106,8 @@ echo "  Service Phase: $TF_VAR_service_phase"
 echo "  Cost Center: $TF_VAR_cost_center"
 echo "  Owner: $TF_VAR_owner"
 echo "  Organization: $TF_VAR_organization"
+echo "  Managed By Integration: $TF_VAR_managed_by_integration"
+echo "  App: $TF_VAR_app"
 echo "  Repository URL: $TF_VAR_repository_url"
 echo "  Repository Branch: $TF_VAR_repository_branch"
 echo "  API Additional Allowed Accounts: $TF_VAR_api_additional_allowed_accounts"

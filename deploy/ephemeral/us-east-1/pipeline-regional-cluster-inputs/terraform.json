@@ -5,6 +5,8 @@
   "cost_center": "000",
   "owner": "placeholder",
   "organization": "placeholder",
+  "managed_by_integration": "terraform",
+  "app": "rosa",
   "environment": "ephemeral",
   "account_id": "ssm:///infra/ephemeral/us-east-1/account_id",
   "region": "us-east-1",
