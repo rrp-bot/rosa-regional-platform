@@ -53,16 +53,18 @@ go install github.com/onsi/ginkgo/v2/ginkgo@v2.28.1
 export PATH="$(go env GOPATH)/bin:${PATH}"
 
 # Wait for the API backend to be ready before running tests.
-# ECS tasks can take several minutes to pass health checks after Terraform provisions them.
-# We poll until we receive any response other than 502 (Bad Gateway) or a connection error.
-# A non-502 response (including 403 for IAM-protected endpoints) confirms the backend is reachable.
+# The platform-api ECS service is deployed via ArgoCD after provision completes and can take
+# several minutes to pass ALB health checks. API Gateway returns 5xx (502/503) until the
+# backend target is healthy. A 4xx (e.g. 403 for IAM-protected endpoints) means the backend
+# is reachable and we can proceed.
 echo "Waiting for API backend to be ready at ${BASE_URL}/v0/live..."
-_API_WAIT_TIMEOUT=300
+_API_WAIT_TIMEOUT=600
 _API_WAIT_INTERVAL=15
 _api_elapsed=0
 while [[ $_api_elapsed -lt $_API_WAIT_TIMEOUT ]]; do
     _status=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "${BASE_URL}/v0/live" 2>/dev/null || echo "000")
-    if [[ "$_status" != "502" && "$_status" != "000" ]]; then
+    _status_class="${_status:0:1}"
+    if [[ "$_status" != "000" && "$_status_class" != "5" ]]; then
         echo "API backend responded (HTTP ${_status}) — proceeding with tests."
         break
     fi
