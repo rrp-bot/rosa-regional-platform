@@ -45,6 +45,7 @@ After collecting data, perform the following analysis:
 ### CI health assessment
 
 For each job, determine a traffic-light status:
+
 - **Green**: last run passed, no more than 1 failure in last 10
 - **Amber**: last run passed but 2+ recent failures, OR last run failed but the one before passed
 - **Red**: 2+ consecutive recent failures
@@ -60,6 +61,7 @@ Cross-reference CI failures with PRs to determine whether issues are being addre
 ### PR queue categorisation
 
 From the open PRs, extract:
+
 - **`rrp-bot` PRs** (author login `rrp-bot`) — IC should review these
 - **`review-ready` PRs without active reviewers** — IC should assign or review
 - **Stale PRs** (open >2 weeks, not draft) — need a nudge
@@ -74,12 +76,14 @@ Present a briefing with the following sections. Use concise, scannable formattin
 ### CI Status
 
 A traffic-light summary (green/amber/red) for each CI job. Include:
+
 - Last run result and when it ran
 - Pass/fail trend (e.g. "8/10 passing")
 - Whether an open or recently merged PR appears to address any failures
 - If red with no fix PR: flag as top priority
 
 Reference links for humans:
+
 - [Nightly Ephemeral](https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/periodic-ci-openshift-online-rosa-regional-platform-main-nightly-ephemeral)
 - [Nightly Integration](https://prow.ci.openshift.org/job-history/gs/test-platform-results/logs/periodic-ci-openshift-online-rosa-regional-platform-main-nightly-integration)
 - [On-demand E2E](https://prow.ci.openshift.org/job-history/gs/test-platform-results/pr-logs/directory/pull-ci-openshift-online-rosa-regional-platform-main-on-demand-e2e)
@@ -87,6 +91,7 @@ Reference links for humans:
 ### PR Queue
 
 List PRs needing IC attention:
+
 1. `rrp-bot` PRs (these should be reviewed by IC)
 2. `review-ready` PRs without active reviewers (IC should assign or review)
 3. Stale PRs that need a nudge
@@ -94,6 +99,7 @@ List PRs needing IC attention:
 ### ROSAENG-140 — Unassigned Work
 
 List unassigned items from the epic, prioritised by:
+
 1. Priority field (Blocker > Critical > Major > Minor > Trivial)
 2. Age (older items first)
 
@@ -104,6 +110,7 @@ If there are also assigned in-progress items, list them briefly so the IC has fu
 ### Recommended Focus
 
 End with a short numbered list (max 5 items) of what the IC should tackle first, in priority order. Consider:
+
 - Red CI jobs with no fix PR are always top priority
 - `rrp-bot` PRs and review-ready PRs are next
 - Unassigned ROSAENG-140 items fill the remaining time
