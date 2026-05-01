@@ -12,6 +12,9 @@ ARG PRETTIER_VERSION=3.8.1
 ARG YQ_VERSION=v4.44.3
 ARG K6_VERSION=0.55.0
 
+# Update CA trust store (proxy CA may be mounted at build time)
+RUN update-ca-trust
+
 # System packages
 RUN dnf install -y \
         git \
@@ -20,7 +23,6 @@ RUN dnf install -y \
         unzip \
         python3-pip \
         findutils \
-        gnupg2 \
         openssl \
         golang \
         nodejs \
@@ -30,30 +32,11 @@ RUN dnf install -y \
 # Prettier (for markdown doc checks)
 RUN npm install -g prettier@${PRETTIER_VERSION}
 
-# Terraform (GPG-verified)
-RUN arch=$(uname -m) && \
-    case "${arch}" in \
-        x86_64)  arch="amd64" ;; \
-        aarch64) arch="arm64" ;; \
-    esac && \
-    TF_PACKAGE="terraform_${TERRAFORM_VERSION}_linux_${arch}.zip" && \
-    TF_BASE_URL="https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}" && \
-    curl -fsSLO "${TF_BASE_URL}/${TF_PACKAGE}" && \
-    curl -fsSLO "${TF_BASE_URL}/terraform_${TERRAFORM_VERSION}_SHA256SUMS" && \
-    curl -fsSLO "${TF_BASE_URL}/terraform_${TERRAFORM_VERSION}_SHA256SUMS.sig" && \
-    ( gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \
-        C874011F0AB405110D02105534365D9472D7468F || \
-      gpg --batch --keyserver keys.openpgp.org --recv-keys \
-        C874011F0AB405110D02105534365D9472D7468F || \
-      gpg --batch --keyserver pgp.mit.edu --recv-keys \
-        C874011F0AB405110D02105534365D9472D7468F ) && \
-    gpg --batch --verify "terraform_${TERRAFORM_VERSION}_SHA256SUMS.sig" \
-        "terraform_${TERRAFORM_VERSION}_SHA256SUMS" && \
-    grep "${TF_PACKAGE}" "terraform_${TERRAFORM_VERSION}_SHA256SUMS" | sha256sum -c - && \
-    unzip -qo "${TF_PACKAGE}" -d /usr/local/bin && \
-    chmod +x /usr/local/bin/terraform && \
-    rm -f "${TF_PACKAGE}" "terraform_${TERRAFORM_VERSION}_SHA256SUMS" \
-        "terraform_${TERRAFORM_VERSION}_SHA256SUMS.sig"
+# Terraform via HashiCorp RHEL repo (version-pinned, GPG-verified by dnf)
+RUN curl --retry 3 --retry-delay 2 --retry-all-errors -fsSL https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo \
+      -o /etc/yum.repos.d/hashicorp.repo && \
+    dnf install -y terraform-${TERRAFORM_VERSION} && \
+    dnf clean all
 
 # Helm 3 (pinned release tag; get-helm-3 verifies checksums by default)
 RUN curl -fsSL "https://raw.githubusercontent.com/helm/helm/${HELM_VERSION}/scripts/get-helm-3" \
@@ -114,4 +97,4 @@ ENV GOPATH=/tmp/gopath
 ENV GOCACHE=/tmp/.cache/go-build
 
 # Python packages (awscurl for API Gateway testing)
-RUN uv pip install --system awscurl
+RUN uv pip install --native-tls --system awscurl
