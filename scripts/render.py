@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jinja2 import Environment
+from jinja2 import ChainableUndefined, Environment
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
@@ -73,10 +73,95 @@ def deep_merge_ruamel(base: CommentedMap, overlay: CommentedMap) -> CommentedMap
     return result
 
 
+_UNDEFINED_SENTINEL = "__UNDEFINED__"
+_PURE_VAR_RE = re.compile(r"^\{\{\s*([\w.]+)\s*(?:\|.*)?\}\}$")
+_DEFAULT_RE = re.compile(r"\|\s*default\(\s*(.+?)\s*\)")
+_MISSING = object()
+
+
+def _parse_default_type(default_arg: str, context: dict) -> type | None:
+    """Determine the Python type of a default() filter argument.
+
+    Handles literals (true/false, numbers, quoted strings) and falls back
+    to a context variable lookup.  Returns None when the type cannot be
+    determined.
+    """
+    arg = default_arg.strip()
+    if arg in ("true", "false", "True", "False"):
+        return bool
+    if (arg.startswith('"') and arg.endswith('"')) or (
+        arg.startswith("'") and arg.endswith("'")
+    ):
+        return str
+    try:
+        int(arg)
+        return int
+    except ValueError:
+        pass
+    try:
+        float(arg)
+        return float
+    except ValueError:
+        pass
+    native = _resolve_var_path(context, arg)
+    if native is not _MISSING and isinstance(native, (int, float, bool)):
+        return type(native)
+    return None
+
+
+class _StrictChainableUndefined(ChainableUndefined):
+    """Undefined that chains attribute access but fails loudly when rendered."""
+
+    def __str__(self) -> str:
+        return _UNDEFINED_SENTINEL
+
+    def __iter__(self):
+        return iter([])
+
+    def __bool__(self) -> bool:
+        return False
+
+
+def _make_jinja_env() -> "Environment":
+    return Environment(undefined=_StrictChainableUndefined)
+
+
+def _resolve_var_path(context: dict, path: str) -> Any:
+    """Resolve a dotted path (e.g. 'a.b.c') against a context dict."""
+    current: Any = context
+    for part in path.split("."):
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        else:
+            return _MISSING
+    return current
+
+
 def resolve_templates(value: Any, context: dict[str, Any]) -> Any:
     """Recursively resolve Jinja2 expressions in config values."""
     if isinstance(value, str):
-        return Environment().from_string(value).render(context)
+        native_type = None
+        m = _PURE_VAR_RE.match(value)
+        if m:
+            native = _resolve_var_path(context, m.group(1))
+            if native is not _MISSING and isinstance(native, (int, float, bool)):
+                native_type = type(native)
+            elif native is _MISSING:
+                dm = _DEFAULT_RE.search(value)
+                if dm:
+                    native_type = _parse_default_type(dm.group(1), context)
+        rendered = _make_jinja_env().from_string(value).render(context)
+        if _UNDEFINED_SENTINEL in rendered:
+            raise ValueError(
+                f"undefined variable in template: {value!r} rendered to {rendered!r}"
+            )
+        if native_type is bool:
+            return rendered.lower() == "true"
+        if native_type is int:
+            return int(rendered)
+        if native_type is float:
+            return float(rendered)
+        return rendered
     elif isinstance(value, dict):
         return {k: resolve_templates(v, context) for k, v in value.items()}
     elif isinstance(value, list):
@@ -109,9 +194,15 @@ def discover_regions(env_dir: Path) -> list[str]:
 
 def render_template(template_path: Path, context: dict[str, Any]) -> str:
     """Render a Jinja2 template file with context."""
-    env = Environment()
+    env = _make_jinja_env()
     env.filters["toyaml"] = _toyaml
-    return env.from_string(template_path.read_text()).render(context)
+    rendered = env.from_string(template_path.read_text()).render(context)
+    if _UNDEFINED_SENTINEL in rendered:
+        raise ValueError(
+            f"undefined variable in template {template_path}: "
+            f"rendered output contains unresolved references"
+        )
+    return rendered
 
 
 def _toyaml(value: Any) -> str:
