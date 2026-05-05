@@ -1,0 +1,22 @@
+FROM registry.access.redhat.com/ubi9/python-311:latest
+
+USER 0
+
+RUN dnf install -y git make curl tar && \
+    curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo \
+        -o /etc/yum.repos.d/github-cli.repo && \
+    dnf install -y gh && \
+    dnf clean all
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /workspace
+
+COPY . /opt/spec-to-pr/
+
+RUN uv pip install --system /opt/spec-to-pr/
+
+USER 1001
+
+ENTRYPOINT ["spec-to-pr"]
+CMD ["--help"]

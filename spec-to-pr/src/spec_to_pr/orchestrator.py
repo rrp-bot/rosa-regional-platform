@@ -1,0 +1,280 @@
+from __future__ import annotations
+
+import hashlib
+import logging
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+from spec_to_pr.models import (
+    CircuitBreaker,
+    DebugMemoryEntry,
+    E2EResults,
+    OrchestratorSession,
+    Phase,
+    WorkItem,
+)
+from spec_to_pr.models.phase_context import DebugOutcome, EphemeralEnv, FailurePhase, PhaseContext
+from spec_to_pr.agent_runner import AgentRunner
+from spec_to_pr.personas import PersonaLoader
+from spec_to_pr.state_machine import StateMachine
+from spec_to_pr.storage import FileStorage
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class Config:
+    storage_path: Path = field(default_factory=lambda: Path(".spec-to-pr/sessions"))
+    agents_path: Path = field(default_factory=lambda: Path(".claude/agents"))
+    max_attempts: int = 3
+    workspace: Path = field(default_factory=Path.cwd)
+    skip_deploy: bool = False
+
+
+class Orchestrator:
+    def __init__(self, config: Config) -> None:
+        self.config = config
+        self.state_machine = StateMachine()
+        self.storage = FileStorage(config.storage_path)
+        self.persona_loader = PersonaLoader(config.agents_path)
+        self._circuit_breaker: Optional[CircuitBreaker] = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def run(self, work_item: WorkItem, dry_run: bool = False) -> OrchestratorSession:
+        session = OrchestratorSession.new(work_item, dry_run=dry_run, max_attempts=self.config.max_attempts)
+        self._circuit_breaker = CircuitBreaker(max_attempts=self.config.max_attempts)
+        self.storage.save_session(session)
+        return self._run_loop(session)
+
+    def resume(self, work_id: str) -> OrchestratorSession:
+        session = self.storage.load_session(work_id)
+        if session is None:
+            raise ValueError(f"No session found for work_id {work_id!r}")
+        if session.is_terminal:
+            log.info("Session %s is already in terminal phase %s", work_id, session.current_phase)
+            return session
+        entries = self.storage.load_debug_entries(work_id)
+        self._circuit_breaker = CircuitBreaker(max_attempts=session.max_attempts)
+        for e in entries:
+            self._circuit_breaker.record_attempt(e.error_fingerprint, self._progress_score(e))
+        return self._run_loop(session)
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
+
+    def _run_loop(self, session: OrchestratorSession) -> OrchestratorSession:
+        while not session.is_terminal:
+            log.info("[%s] phase=%s attempt=%d", session.work_item.work_id, session.current_phase.value, session.attempt_number)
+            match session.current_phase:
+                case Phase.SPEC_INGESTION:
+                    self._ingest_spec(session)
+                case Phase.DRY_RUN_REVIEW:
+                    self._dry_run_review(session)
+                case Phase.IMPLEMENTATION:
+                    self._run_implementation_team(session)
+                case Phase.DEPLOYMENT:
+                    self._deploy(session)
+                case Phase.E2E_EXECUTION:
+                    self._run_e2e(session)
+                case Phase.DEBUG:
+                    self._debug(session)
+                case Phase.CIRCUIT_BREAKER_CHECK:
+                    self._check_circuit_breaker(session)
+                case Phase.PR_SUBMISSION:
+                    self._submit_prs(session)
+            self.storage.save_session(session)
+        return session
+
+    # ------------------------------------------------------------------
+    # Phase handlers
+    # ------------------------------------------------------------------
+
+    def _ingest_spec(self, session: OrchestratorSession) -> None:
+        work_item = session.work_item
+        if not work_item.spec_content:
+            log.error("No spec content for %s", work_item.work_id)
+            raise ValueError(f"work_id {work_item.work_id!r} has no spec content")
+        log.info("Spec ingested (%d chars)", len(work_item.spec_content))
+        self.state_machine.transition(session, spec_valid=True, dry_run=session.dry_run)
+
+    def _dry_run_review(self, session: OrchestratorSession) -> None:
+        print("\n=== DRY RUN REVIEW ===")
+        print(f"Work ID : {session.work_item.work_id}")
+        print(f"Spec    : {len(session.work_item.spec_content)} chars")
+        print("\nImplementation plan would be generated and deployed if you proceed.")
+        answer = input("Approve and continue? [y/N] ").strip().lower()
+        self.state_machine.transition(session, human_approved=(answer == "y"))
+
+    def _run_implementation_team(self, session: OrchestratorSession) -> None:
+        """Spawn Claude SDK agent sessions for implementation work."""
+        log.info("Running implementation team (attempt %d)", session.attempt_number)
+        try:
+            self._run_claude_agent("developer", session)
+            if self.config.skip_deploy:
+                log.info("skip_deploy=True — jumping straight to PR submission")
+                session.current_phase = Phase.PR_SUBMISSION
+                return
+            self.state_machine.transition(session, implementation_complete=True)
+        except Exception as exc:
+            log.error("Implementation failed: %s", exc)
+            # Record a circuit breaker attempt so the breaker can trip on repeated failures
+            assert self._circuit_breaker is not None
+            fingerprint = hashlib.sha256(str(exc).encode()).hexdigest()[:12]
+            self._circuit_breaker.record_attempt(fingerprint, 0.0)
+            self.state_machine.transition(session, implementation_complete=False)
+
+    def _deploy(self, session: OrchestratorSession) -> None:
+        log.info("Deploying to ephemeral environment")
+        ok = self._run_make("ephemeral-dev") and self._run_make("resync")
+        self.state_machine.transition(session, deployment_successful=ok)
+
+    def _run_e2e(self, session: OrchestratorSession) -> None:
+        log.info("Running e2e tests")
+        ok = self._run_make("ephemeral-e2e")
+        self.state_machine.transition(session, tests_passed=ok)
+
+    def _debug(self, session: OrchestratorSession) -> None:
+        log.info("Entering debug phase for attempt %d", session.attempt_number)
+        previous = self.storage.load_debug_entries(session.work_item.work_id)
+        try:
+            findings = self._run_claude_agent_debug("developer", session, previous)
+        except Exception as exc:
+            log.error("Debug agent failed: %s", exc)
+            findings = [f"Debug agent error: {exc}"]
+
+        fingerprint = hashlib.sha256(("\n".join(findings)).encode()).hexdigest()[:12]
+        progress = self._estimate_progress(session)
+        entry = DebugMemoryEntry(
+            attempt_number=session.attempt_number,
+            timestamp=datetime.now(timezone.utc),
+            phase_at_failure=FailurePhase.E2E_EXECUTION,
+            error_summary=findings[0] if findings else "unknown error",
+            error_fingerprint=fingerprint,
+            debug_findings=findings,
+        )
+        self.storage.save_debug_entry(session.work_item.work_id, entry)
+        assert self._circuit_breaker is not None
+        self._circuit_breaker.record_attempt(fingerprint, progress)
+        self.state_machine.transition(session)
+
+    def _check_circuit_breaker(self, session: OrchestratorSession) -> None:
+        assert self._circuit_breaker is not None
+        tripped = self._circuit_breaker.tripped
+        if tripped:
+            log.warning("Circuit breaker tripped: %s", self._circuit_breaker.trip_reason)
+        self.state_machine.transition(session, breaker_tripped=tripped)
+
+    def _submit_prs(self, session: OrchestratorSession) -> None:
+        log.info("Submitting PRs for %d repos", len(session.repos))
+        for repo in session.repos:
+            if repo.status in ("committed",) and repo.pr_url is None:
+                pr_url = self._create_pr(repo.repo_name, repo.branch, session)
+                if pr_url:
+                    repo.pr_url = pr_url
+                    repo.status = "pr_created"
+        self.state_machine.transition(session, prs_created=True)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _run_make(self, target: str, **kwargs) -> bool:
+        result = subprocess.run(
+            ["make", target],
+            capture_output=True,
+            text=True,
+            cwd=self.config.workspace,
+            **kwargs,
+        )
+        if result.returncode != 0:
+            log.error("make %s failed:\n%s", target, result.stderr[-2000:])
+        return result.returncode == 0
+
+    def _make_runner(self, persona_name: str) -> tuple[AgentRunner, str]:
+        """Return an AgentRunner configured with the given persona's SDK settings."""
+        try:
+            persona = self.persona_loader.load(persona_name)
+            sdk_cfg = persona.sdk_config
+            runner = AgentRunner(
+                workspace=self.config.workspace,
+                model=sdk_cfg.get("model", "claude-sonnet-4-6"),
+                max_turns=sdk_cfg.get("max_turns", 50),
+            )
+            system_prompt = persona.build_system_prompt()
+        except FileNotFoundError:
+            log.warning("Persona %r not found — using defaults", persona_name)
+            runner = AgentRunner(workspace=self.config.workspace)
+            system_prompt = "You are a software developer. Implement the requested changes."
+        return runner, system_prompt
+
+    def _run_claude_agent(self, persona_name: str, session: OrchestratorSession) -> None:
+        """Run a Claude SDK agent session for implementation work."""
+        runner, system_prompt = self._make_runner(persona_name)
+        task = (
+            f"Work ID: {session.work_item.work_id}\n"
+            f"Attempt: {session.attempt_number}\n\n"
+            f"{session.work_item.spec_content}\n\n"
+            "Implement all changes described above. "
+            "When done, respond with 'Implementation complete.'"
+        )
+        result = runner.run(system_prompt=system_prompt, task=task)
+        log.info("Implementation agent finished. Summary: %s", result[:200])
+
+    def _run_claude_agent_debug(
+        self, persona_name: str, session: OrchestratorSession, previous: list
+    ) -> list[str]:
+        """Run a debug agent session and return a list of findings."""
+        runner, system_prompt = self._make_runner(persona_name)
+        prev_ctx = "\n".join(
+            f"Attempt {e.attempt_number}: {e.error_summary}" for e in previous
+        )
+        task = (
+            f"Debug failure for work item {session.work_item.work_id}.\n\n"
+            f"Previous attempts:\n{prev_ctx}\n\n"
+            "Investigate logs, pod state, and recent changes. "
+            "Return a bullet-point list of findings and hypotheses."
+        )
+        response = runner.run(system_prompt=system_prompt, task=task)
+        return [
+            line.lstrip("-• ").strip()
+            for line in response.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+    def _create_pr(self, repo_name: str, branch: str, session: OrchestratorSession) -> Optional[str]:
+        result = subprocess.run(
+            [
+                "gh", "pr", "create",
+                "--title", f"[{session.work_item.work_id}] Automated implementation",
+                "--body", (
+                    f"Automated PR for {session.work_item.work_id}\n\n"
+                    f"Attempt: {session.attempt_number}"
+                ),
+                "--head", branch,
+            ],
+            capture_output=True,
+            text=True,
+            cwd=self.config.workspace,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        log.error("gh pr create failed for %s: %s", repo_name, result.stderr)
+        return None
+
+    def _estimate_progress(self, session: OrchestratorSession) -> float:
+        return max(0.0, 1.0 - (session.attempt_number / session.max_attempts))
+
+    @staticmethod
+    def _progress_score(entry: DebugMemoryEntry) -> float:
+        tr = entry.test_results
+        if tr.total == 0:
+            return 0.0
+        return tr.passed / tr.total
