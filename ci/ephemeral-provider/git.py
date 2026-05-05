@@ -225,6 +225,12 @@ class GitManager:
             count = self._run_git("rev-list", "--count", f"{head_before}..{head_after}").stdout.strip()
             log.info("Reset: %s new commits from upstream/%s", count, self.source_branch)
 
+        # Strip .github/workflows/ again after reset — same reason as
+        # create_ci_branch: bot PAT lacks `workflow` scope.
+        workflows_dir = self.work_dir / ".github" / "workflows"
+        if workflows_dir.exists():
+            shutil.rmtree(workflows_dir)
+
         branch_url = f"https://github.com/{self.fork_repo}/commits/{self.ci_branch}/"
         log.info("Resync complete: %s", branch_url)
 
