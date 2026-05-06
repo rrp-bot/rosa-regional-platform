@@ -9,14 +9,17 @@ For local development usage via Make targets, see [Provisioning a Development En
 ```bash
 # Requires uv (https://docs.astral.sh/uv/)
 
-# Provision
-BUILD_ID=abc123 ./ci/ephemeral-provider/main.py --repo owner/repo --branch my-feature --creds-dir /path/to/credentials
+# Provision (generates a random ID and prints it — pass it to teardown/resync)
+./ci/ephemeral-provider/main.py --repo owner/repo --branch my-feature --creds-dir /path/to/credentials
 
-# Teardown (same BUILD_ID)
-BUILD_ID=abc123 ./ci/ephemeral-provider/main.py --teardown --repo owner/repo --branch my-feature --creds-dir /path/to/credentials
+# Provision with an explicit ID (use directly in prefix, no hashing)
+./ci/ephemeral-provider/main.py --id abc123 --repo owner/repo --branch my-feature --creds-dir /path/to/credentials
 
-# Resync (rebase CI branch onto latest source branch, same BUILD_ID)
-BUILD_ID=abc123 ./ci/ephemeral-provider/main.py --resync --repo owner/repo --branch my-feature --creds-dir /path/to/credentials
+# Teardown (same --id)
+./ci/ephemeral-provider/main.py --teardown --id abc123 --repo owner/repo --branch my-feature --creds-dir /path/to/credentials
+
+# Resync (rebase ephemeral branch onto latest source branch, same --id)
+./ci/ephemeral-provider/main.py --resync --id abc123 --repo owner/repo --branch my-feature --creds-dir /path/to/credentials
 ```
 
 ## Overrides
@@ -35,7 +38,7 @@ Also settable via `EPHEMERAL_OVERRIDE_DIR` env var.
 
 ### `--provision-override-file`
 
-Deep-merges a YAML fragment into a specific file in the repo before the CI branch is committed. Useful for surgical changes like overriding a single Helm value without replacing the whole file. Only applied during provision (not resync).
+Deep-merges a YAML fragment into a specific file in the repo before the ephemeral branch is committed. Useful for surgical changes like overriding a single Helm value without replacing the whole file. Only applied during provision (not resync).
 
 ```bash
 ./ci/ephemeral-provider/main.py \
@@ -51,12 +54,12 @@ Can be specified multiple times. Format is `<target-path>:<override-file>` where
 
 ## Modules
 
-| Module              | Description                                                           |
-| ------------------- | --------------------------------------------------------------------- |
-| `main.py`           | CLI entrypoint — parses args, runs provision, teardown, or resync     |
-| `orchestrator.py`   | Top-level orchestration logic for provision and teardown workflows    |
-| `aws.py`            | AWS credential management and session helpers                         |
-| `git.py`            | Git operations for CI branch creation, rendering, and resync (rebase) |
-| `pipeline.py`       | CodeBuild pipeline monitoring (discovery, polling, status)            |
-| `codebuild_logs.py` | CloudWatch log fetching and formatting for CodeBuild projects         |
-| `yaml_utils.py`     | YAML deep-merge utilities for applying provision overrides            |
+| Module              | Description                                                                  |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `main.py`           | CLI entrypoint — parses args, runs provision, teardown, or resync            |
+| `orchestrator.py`   | Top-level orchestration logic for provision and teardown workflows           |
+| `aws.py`            | AWS credential management and session helpers                                |
+| `git.py`            | Git operations for ephemeral branch creation, rendering, and resync (rebase) |
+| `pipeline.py`       | CodeBuild pipeline monitoring (discovery, polling, status)                   |
+| `codebuild_logs.py` | CloudWatch log fetching and formatting for CodeBuild projects                |
+| `yaml_utils.py`     | YAML deep-merge utilities for applying provision overrides                   |
