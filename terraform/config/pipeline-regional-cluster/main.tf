@@ -4,6 +4,17 @@ provider "aws" {
   # FIPS endpoints exist only in US and GovCloud regions; non-US regions (EU, AP, SA)
   # do not support FIPS endpoints and will fail if this is set to true.
   use_fips_endpoint = can(regex("^(us|us-gov)-", var.region)) ? true : false
+
+  default_tags {
+    tags = {
+      "app-code"      = var.app_code
+      "cost-center"   = var.cost_center
+      "owner"         = var.owner
+      "service-phase" = var.service_phase
+      "organization"  = var.organization
+      "environment"   = var.target_environment
+    }
+  }
 }
 
 data "aws_caller_identity" "current" {}
