@@ -67,7 +67,7 @@ Running `scripts/render.py` generates:
 - **`deploy/<env>/<region>/pipeline-provisioner-inputs/terraform.json`**
   - Consumer: `provision-pipelines.sh` (pipeline-provisioner pipeline)
   - Trigger: Pipeline provisioner
-  - Contains: `domain`
+  - Contains: `domain`, `app_code`, `service_phase`, `cost_center`, `owner`, `organization`, `app`
 
 - **`deploy/<env>/<region>/pipeline-provisioner-inputs/regional-cluster.json`**
   - Consumer: `provision-pipelines.sh` (pipeline-provisioner pipeline)
@@ -138,13 +138,21 @@ aws:
 dns:
   domain: ""
 
-terraform_common:
+terraform_tags:
   app_code: "infra"
   service_phase: "dev"
   cost_center: "000"
+  owner: "placeholder"
+  organization: "placeholder"
+  app: "rosa-regionality"
+
+regional_cluster:
   enable_bastion: false
-  node_instance_types_management: ["t3.medium", "t3a.medium"]
-  node_instance_types_regional: ["t3.medium", "t3a.medium"]
+  node_instance_types: ["t3.medium", "t3a.medium"]
+
+management_cluster_defaults:
+  enable_bastion: false
+  node_instance_types: ["t3.medium", "t3a.medium"]
 
 applications:
   regional-cluster:
@@ -160,7 +168,14 @@ Environment-level defaults:
 dns:
   domain: int0.rosa.devshift.net
 
-terraform_common:
+terraform_tags:
+  app_code: "OSD-002"
+  service_phase: "stage"
+  cost_center: "732"
+  owner: "rrp-admin-team"
+  organization: "Hybrid Cloud Management"
+
+regional_cluster:
   enable_bastion: true
 ```
 
