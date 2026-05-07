@@ -410,6 +410,28 @@ aws cloudformation delete-stack --stack-name <stack_name>
 aws cloudformation wait stack-delete-complete --stack-name <stack_name>
 ```
 
+# Force Clean Up All HCPs in a Region
+
+To delete all clusters and resource bundles in a region, temporarily set
+`MAX_AGE_HOURS` to `0` and trigger the cleanup cronjob. ArgoCD must be
+scaled down first to prevent it from reverting the change.
+
+From the RC bastion:
+
+```bash
+# Scale down ArgoCD so it doesn't revert the cronjob patch
+oc scale statefulsets -n argocd argocd-application-controller --replicas=0
+
+# Set MAX_AGE_HOURS to 0 (delete everything) and trigger a one-off job
+oc -n hyperfleet-system patch cronjob cluster-cleanup \
+  --type='json' \
+  -p='[{"op":"replace","path":"/spec/jobTemplate/spec/template/spec/containers/0/env/0/value","value":"0"}]'
+oc -n hyperfleet-system create job "cluster-cleanup-$(date +%s)" --from=cronjob/cluster-cleanup
+
+# Scale ArgoCD back up (will restore MAX_AGE_HOURS to its original value)
+oc scale statefulsets -n argocd argocd-application-controller --replicas=1
+```
+
 # Notes
 
 1. if you create more than 5 hcp, make sure your account has more than nat gateway quota. The default is 5.
