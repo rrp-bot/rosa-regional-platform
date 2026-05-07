@@ -108,9 +108,10 @@ spec:
             # - https://github.com/openshift/hypershift/pull/8343 / OCPBUGS-84508 
             # - https://github.com/openshift/hypershift/pull/8344 / OCPBUGS-84509
             # - https://github.com/openshift/hypershift/pull/8357 / OCPBUGS-84572
+            # - https://github.com/openshift/hypershift/pull/8458 / OCPBUGS-85243
             # We cannot use 5.0.0 because it just branched and is in a broken state.
             # Once we backport the above fixes to 4.22, we can use a somewhat stable 4.22 build.
-            hypershift.openshift.io/control-plane-operator-image: quay.io/cbusse_openshift/control-plane-operator:eks-compat-4.22-a1fa3e6cfa
+            hypershift.openshift.io/control-plane-operator-image: quay.io/cbusse_openshift/control-plane-operator:eks-compat-4.22-cfe86d4436
         spec:
           infraID: "{{ .clusterId }}"
           dns:
@@ -143,7 +144,7 @@ spec:
                 zone: "{{ .zone }}" 
                 subnet:
                   id: "{{ .subnetId }}"
-              endpointAccess: Private
+              endpointAccess: PublicAndPrivate
               rolesRef:
                 controlPlaneOperatorARN: "{{ .controlPlaneOperatorARN }}"
                 ingressARN: "{{ .ingressARN }}"
@@ -158,13 +159,21 @@ spec:
                 - key: red-hat-managed
                   value: "true"
           issuerURL: "{{ .cloudUrl }}/{{ .clusterId }}"
+          # On EKS (non-OpenShift), using Route with explicit hostnames for KAS
+          # and OAuth forces HyperShift to deploy a dedicated HCP router, avoiding
+          # the dependency on a management cluster OpenShift ingress controller.
+          # TODO: Replace placeholder hostnames with real DNS once available.
           services:
             - service: APIServer
               servicePublishingStrategy:
-                type: LoadBalancer
+                type: Route
+                route:
+                  hostname: "api.{{ .clusterName }}.example.com"
             - service: OAuthServer
               servicePublishingStrategy:
                 type: Route
+                route:
+                  hostname: "oauth.{{ .clusterName }}.example.com"
             - service: Konnectivity
               servicePublishingStrategy:
                 type: Route
