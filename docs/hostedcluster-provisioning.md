@@ -111,6 +111,43 @@ CLOUDURL=$(jq -r '.spec.cloudUrl' < /tmp/$CLUSTER_NAME.json)
 rosactl cluster-oidc create $CLUSTER_NAME --region $REGION --oidc-issuer-url $CLOUDURL
 ```
 
+## Access the Hosted Cluster
+
+On your local machine, print the cluster ID and name to paste into the bastion:
+
+```bash
+echo "CLUSTER_ID=$(jq -r '.id' < /tmp/$CLUSTER_NAME.json) CLUSTER_NAME=$CLUSTER_NAME"
+```
+
+Then bastion into the MC (`make ephemeral-bastion-mc` or `make int-bastion-mc`),
+paste the output above, and run:
+
+```bash
+# Extract admin kubeconfig
+oc get secret -n clusters-${CLUSTER_ID}-${CLUSTER_NAME} service-network-admin-kubeconfig \
+  -o jsonpath='{.data.kubeconfig}' | base64 -d > /tmp/${CLUSTER_NAME}-kubeconfig
+
+# KAS is behind the HCP router (HAProxy), not a dedicated LoadBalancer.
+# Get the router LB address (DNS not yet available).
+LB_HOST=$(oc get svc router \
+  -n clusters-${CLUSTER_ID}-${CLUSTER_NAME} \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+# Patch the kubeconfig to use the router LB on port 443
+sed -i'' "s|server: .*|server: https://${LB_HOST}:443|" /tmp/${CLUSTER_NAME}-kubeconfig
+```
+
+Copy the kubeconfig to your local machine, then:
+
+```bash
+export KUBECONFIG=/tmp/${CLUSTER_NAME}-kubeconfig
+# TLS cert won't match the LB hostname (issued for the Route hostname),
+# so --insecure-skip-tls-verify is needed until DNS is set up.
+oc get nodes --insecure-skip-tls-verify
+```
+
+---
+
 # Tear Down a Hosted Cluster (Temporary)
 
 > **Note:** This is a temporary workaround while cluster deletion through the
@@ -371,6 +408,28 @@ aws cloudformation delete-stack --stack-name <stack_name>
 
 # Wait for deletion to complete
 aws cloudformation wait stack-delete-complete --stack-name <stack_name>
+```
+
+# Force Clean Up All HCPs in a Region
+
+To delete all clusters and resource bundles in a region, temporarily set
+`MAX_AGE_HOURS` to `0` and trigger the cleanup cronjob. ArgoCD must be
+scaled down first to prevent it from reverting the change.
+
+From the RC bastion:
+
+```bash
+# Scale down ArgoCD so it doesn't revert the cronjob patch
+oc scale statefulsets -n argocd argocd-application-controller --replicas=0
+
+# Set MAX_AGE_HOURS to 0 (delete everything) and trigger a one-off job
+oc -n hyperfleet-system patch cronjob cluster-cleanup \
+  --type='json' \
+  -p='[{"op":"replace","path":"/spec/jobTemplate/spec/template/spec/containers/0/env/0/value","value":"0"}]'
+oc -n hyperfleet-system create job "cluster-cleanup-$(date +%s)" --from=cronjob/cluster-cleanup
+
+# Scale ArgoCD back up (will restore MAX_AGE_HOURS to its original value)
+oc scale statefulsets -n argocd argocd-application-controller --replicas=1
 ```
 
 # Notes
