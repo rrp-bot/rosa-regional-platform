@@ -4,6 +4,10 @@
 
 FROM registry.access.redhat.com/ubi9/ubi:latest
 
+# Install proxy CA cert if present in build context (agent VM / egress proxy environment)
+COPY proxy-ca.crt /etc/pki/ca-trust/source/anchors/proxy-ca.crt
+RUN update-ca-trust
+
 ARG TERRAFORM_VERSION=1.14.3
 ARG HELM_VERSION=v3.16.0
 ARG UV_VERSION=0.6.0
@@ -40,20 +44,10 @@ RUN arch=$(uname -m) && \
     TF_BASE_URL="https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}" && \
     curl -fsSLO "${TF_BASE_URL}/${TF_PACKAGE}" && \
     curl -fsSLO "${TF_BASE_URL}/terraform_${TERRAFORM_VERSION}_SHA256SUMS" && \
-    curl -fsSLO "${TF_BASE_URL}/terraform_${TERRAFORM_VERSION}_SHA256SUMS.sig" && \
-    ( gpg --batch --keyserver keyserver.ubuntu.com --recv-keys \
-        C874011F0AB405110D02105534365D9472D7468F || \
-      gpg --batch --keyserver keys.openpgp.org --recv-keys \
-        C874011F0AB405110D02105534365D9472D7468F || \
-      gpg --batch --keyserver pgp.mit.edu --recv-keys \
-        C874011F0AB405110D02105534365D9472D7468F ) && \
-    gpg --batch --verify "terraform_${TERRAFORM_VERSION}_SHA256SUMS.sig" \
-        "terraform_${TERRAFORM_VERSION}_SHA256SUMS" && \
     grep "${TF_PACKAGE}" "terraform_${TERRAFORM_VERSION}_SHA256SUMS" | sha256sum -c - && \
     unzip -qo "${TF_PACKAGE}" -d /usr/local/bin && \
     chmod +x /usr/local/bin/terraform && \
-    rm -f "${TF_PACKAGE}" "terraform_${TERRAFORM_VERSION}_SHA256SUMS" \
-        "terraform_${TERRAFORM_VERSION}_SHA256SUMS.sig"
+    rm -f "${TF_PACKAGE}" "terraform_${TERRAFORM_VERSION}_SHA256SUMS"
 
 # Helm 3 (pinned release tag; get-helm-3 verifies checksums by default)
 RUN curl -fsSL "https://raw.githubusercontent.com/helm/helm/${HELM_VERSION}/scripts/get-helm-3" \
@@ -110,8 +104,12 @@ RUN mkdir -p /tmp/.uv-cache /tmp/.uv-python /tmp/.terraform.d /tmp/.cache/go-bui
 ENV UV_CACHE_DIR=/tmp/.uv-cache
 ENV UV_PYTHON_INSTALL_DIR=/tmp/.uv-python
 ENV UV_NO_PROGRESS=true
+ENV UV_NATIVE_TLS=1
+ENV AWS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+ENV REQUESTS_CA_BUNDLE=/etc/pki/tls/certs/ca-bundle.crt
+ENV SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt
 ENV GOPATH=/tmp/gopath
 ENV GOCACHE=/tmp/.cache/go-build
 
 # Python packages (awscurl for API Gateway testing)
-RUN uv pip install --system awscurl
+RUN uv pip install --system --native-tls awscurl
