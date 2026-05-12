@@ -5,6 +5,7 @@
 #     "PyYAML>=6.0",
 #     "Jinja2>=3.1",
 #     "pytest>=8.0",
+#     "ruamel.yaml>=0.18",
 # ]
 # ///
 """Unit tests for render.py"""
@@ -62,6 +63,13 @@ def _create_config_structure(
 
     # Start with base required fields (mirrors real config/defaults.yaml)
     base_defaults = {
+        "aws": {
+            "account_id": "",
+            "management_cluster_account_id": "000000000000",
+        },
+        "dns": {
+            "domain": "",
+        },
         "terraform_tags": {
             "app_code": "infra",
             "service_phase": "dev",
@@ -382,6 +390,256 @@ class TestResolveTemplates:
         result = resolve_templates(data, {"x": "val"})
         assert result == ["val", 42, {"k": "val"}]
 
+    def test_plain_string_false_not_coerced(self):
+        result = resolve_templates("false", {})
+        assert result == "false"
+
+    def test_undefined_variable_raises(self):
+        with pytest.raises(ValueError, match="undefined"):
+            resolve_templates("{{ regional_cluster.observe.nothere }}", {})
+
+    def test_undefined_nested_with_default_ok(self):
+        result = resolve_templates(
+            "{{ regional_cluster.observe.nothere | default('fallback') }}", {}
+        )
+        assert result == "fallback"
+
+    def test_undefined_in_dict_raises(self):
+        data = {"key": "{{ missing.nested.path }}"}
+        with pytest.raises(ValueError, match="undefined"):
+            resolve_templates(data, {})
+
+
+# =============================================================================
+# resolve_templates — type preservation
+# =============================================================================
+
+
+class TestResolveTemplatesTypePreservation:
+    """Verify that resolve_templates preserves value types when values are
+    referenced via Jinja2 templates.  Two invariants:
+
+    1. String values that *look like* other types (e.g. "42", "true") must
+       remain strings — no silent coercion.
+    2. Native ints, bools, and floats must remain their original type when
+       referenced through a template expression.
+    """
+
+    # -----------------------------------------------------------------
+    # Category 1: Strings that look like other types stay strings
+    # -----------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        "string_val",
+        ["42", "001", "true", "on", "yes", "0.15"],
+        ids=["int-like", "leading-zero", "bool-true", "bool-on", "bool-yes", "float-like"],
+    )
+    def test_string_direct_not_coerced(self, string_val):
+        """A string value rendered via {{ val }} must stay a string."""
+        result = resolve_templates("{{ val }}", {"val": string_val})
+        assert result == string_val
+        assert type(result) is str
+
+    @pytest.mark.parametrize(
+        "string_val",
+        ["42", "001", "true", "on", "yes", "0.15"],
+        ids=["int-like", "leading-zero", "bool-true", "bool-on", "bool-yes", "float-like"],
+    )
+    def test_string_cross_reference_not_coerced(self, string_val):
+        """A string defined in one part of the config and referenced elsewhere
+        must remain a string after two rounds of resolve_templates."""
+        config = {"settings": {"port": string_val}}
+        resolved_config = resolve_templates(config, {})
+        result = resolve_templates(
+            "{{ settings.port }}", resolved_config
+        )
+        assert result == string_val
+        assert type(result) is str
+
+    # -----------------------------------------------------------------
+    # Category 2: Native types stay native when referenced
+    # -----------------------------------------------------------------
+
+    def test_native_int_preserved(self):
+        """An int value referenced via {{ val }} must remain an int."""
+        result = resolve_templates("{{ val }}", {"val": 42})
+        assert result == 42
+        assert type(result) is int
+
+    def test_native_bool_true_preserved(self):
+        """A True bool referenced via {{ val }} must remain True (bool)."""
+        result = resolve_templates("{{ val }}", {"val": True})
+        assert result is True
+        assert type(result) is bool
+
+    def test_native_bool_false_preserved(self):
+        """A False bool referenced via {{ val }} must remain False (bool)."""
+        result = resolve_templates("{{ val }}", {"val": False})
+        assert result is False
+        assert type(result) is bool
+
+    def test_native_float_preserved(self):
+        """A float value referenced via {{ val }} must remain a float."""
+        result = resolve_templates("{{ val }}", {"val": 0.15})
+        assert result == 0.15
+        assert type(result) is float
+
+    def test_native_int_cross_reference_preserved(self):
+        """An int defined in config and referenced elsewhere stays int."""
+        config = {"settings": {"port": 8080}}
+        resolved_config = resolve_templates(config, {})
+        result = resolve_templates("{{ settings.port }}", resolved_config)
+        assert result == 8080
+        assert type(result) is int
+
+    def test_native_bool_cross_reference_preserved(self):
+        """A bool defined in config and referenced elsewhere stays bool."""
+        config = {"features": {"enabled": True}}
+        resolved_config = resolve_templates(config, {})
+        result = resolve_templates("{{ features.enabled }}", resolved_config)
+        assert result is True
+        assert type(result) is bool
+
+    def test_native_float_cross_reference_preserved(self):
+        """A float defined in config and referenced elsewhere stays float."""
+        config = {"settings": {"ratio": 0.15}}
+        resolved_config = resolve_templates(config, {})
+        result = resolve_templates("{{ settings.ratio }}", resolved_config)
+        assert result == 0.15
+        assert type(result) is float
+
+    # -----------------------------------------------------------------
+    # Mixed: native types in nested structures
+    # -----------------------------------------------------------------
+
+    def test_mixed_types_in_dict_preserved(self):
+        """A dict with mixed native types preserves all types."""
+        config = {
+            "str_val": "hello",
+            "int_val": 42,
+            "bool_val": True,
+            "float_val": 0.15,
+            "str_that_looks_int": "001",
+            "str_that_looks_bool": "true",
+        }
+        result = resolve_templates(config, {})
+        assert type(result["str_val"]) is str
+        assert type(result["int_val"]) is int
+        assert type(result["bool_val"]) is bool
+        assert type(result["float_val"]) is float
+        assert result["str_that_looks_int"] == "001"
+        assert type(result["str_that_looks_int"]) is str
+        assert result["str_that_looks_bool"] == "true"
+        assert type(result["str_that_looks_bool"]) is str
+
+    # -----------------------------------------------------------------
+    # Category 3: Native types preserved through filter expressions
+    # -----------------------------------------------------------------
+
+    def test_bool_false_with_default_filter_preserved(self):
+        """A False bool rendered via {{ val | default(false) }} must stay bool."""
+        result = resolve_templates("{{ val | default(false) }}", {"val": False})
+        assert result is False
+        assert type(result) is bool
+
+    def test_bool_true_with_default_filter_preserved(self):
+        """A True bool rendered via {{ val | default(false) }} must stay bool."""
+        result = resolve_templates("{{ val | default(false) }}", {"val": True})
+        assert result is True
+        assert type(result) is bool
+
+    def test_bool_default_fallback_preserved(self):
+        """When the base var is missing, the type is inferred from the
+        default() literal and the rendered result is coerced to match."""
+        result = resolve_templates("{{ missing | default(false) }}", {})
+        assert result is False
+        assert type(result) is bool
+
+    def test_int_with_default_filter_preserved(self):
+        """An int rendered via {{ val | default(0) }} must stay int."""
+        result = resolve_templates("{{ val | default(0) }}", {"val": 42})
+        assert result == 42
+        assert type(result) is int
+
+    def test_float_with_default_filter_preserved(self):
+        """A float rendered via {{ val | default(0.0) }} must stay float."""
+        result = resolve_templates("{{ val | default(0.0) }}", {"val": 0.15})
+        assert result == 0.15
+        assert type(result) is float
+
+    def test_string_with_default_filter_not_coerced(self):
+        """A string value with a default filter must stay a string."""
+        result = resolve_templates('{{ val | default("fallback") }}', {"val": "001"})
+        assert result == "001"
+        assert type(result) is str
+
+    def test_bool_cross_reference_with_default_preserved(self):
+        """A bool defined in config and referenced with | default stays bool."""
+        config = {"features": {"enabled": False}}
+        resolved_config = resolve_templates(config, {})
+        result = resolve_templates(
+            "{{ features.enabled | default(false) }}", resolved_config
+        )
+        assert result is False
+        assert type(result) is bool
+
+    def test_string_bool_with_default_not_coerced(self):
+        """A string 'true' with a default filter must stay a string."""
+        result = resolve_templates('{{ val | default("nope") }}', {"val": "true"})
+        assert result == "true"
+        assert type(result) is str
+
+    # -----------------------------------------------------------------
+    # Category 4: Default fallback type detection (base var missing)
+    # -----------------------------------------------------------------
+
+    def test_default_fallback_bool_true(self):
+        """default(true) with missing base var produces True (bool)."""
+        result = resolve_templates("{{ missing | default(true) }}", {})
+        assert result is True
+        assert type(result) is bool
+
+    def test_default_fallback_int(self):
+        """default(42) with missing base var produces 42 (int)."""
+        result = resolve_templates("{{ missing | default(42) }}", {})
+        assert result == 42
+        assert type(result) is int
+
+    def test_default_fallback_float(self):
+        """default(0.5) with missing base var produces 0.5 (float)."""
+        result = resolve_templates("{{ missing | default(0.5) }}", {})
+        assert result == 0.5
+        assert type(result) is float
+
+    def test_default_fallback_quoted_string(self):
+        """default("hello") with missing base var produces 'hello' (str)."""
+        result = resolve_templates('{{ missing | default("hello") }}', {})
+        assert result == "hello"
+        assert type(result) is str
+
+    def test_default_fallback_variable_lookup(self):
+        """default(some_var) where some_var is a bool in context preserves bool."""
+        result = resolve_templates(
+            "{{ missing | default(features.enabled) }}",
+            {"features": {"enabled": False}},
+        )
+        assert result is False
+        assert type(result) is bool
+
+    def test_default_fallback_variable_lookup_int(self):
+        """default(some_var) where some_var is an int in context preserves int."""
+        result = resolve_templates(
+            "{{ missing | default(settings.port) }}",
+            {"settings": {"port": 8080}},
+        )
+        assert result == 8080
+        assert type(result) is int
+
+    def test_default_fallback_variable_also_missing(self):
+        """default(also_missing) where both vars are missing raises ValueError."""
+        with pytest.raises(ValueError, match="undefined variable"):
+            resolve_templates("{{ missing | default(also_missing) }}", {})
+
 
 # =============================================================================
 # write_output
@@ -423,12 +681,10 @@ class TestBuildContext:
         ctx = build_context({}, "staging", "us-east-1", "")
         assert ctx["environment"] == "staging"
         assert ctx["aws_region"] == "us-east-1"
-        assert ctx["region"] == "us-east-1"
-        assert ctx["regional_id"] == "regional"
 
-    def test_eph_prefix_in_regional_id(self):
+    def test_eph_prefix_injected(self):
         ctx = build_context({}, "staging", "us-east-1", "xg4y")
-        assert ctx["regional_id"] == "xg4y-regional"
+        assert ctx["eph_prefix"] == "xg4y"
 
     def test_resolves_account_id_template(self):
         merged = {"aws": {"account_id": "account-{{ environment }}-{{ aws_region }}"}}
@@ -450,16 +706,15 @@ class TestBuildMcList:
     def test_builds_mc_entries(self):
         merged = {"provision_mcs": {"mc01": {"account_id": "111"}}}
         ctx = build_context(merged, "staging", "us-east-1", "")
-        mc_list, mc_account_ids = build_mc_list(ctx, merged, "")
+        mc_list = build_mc_list(ctx, merged, "")
         assert len(mc_list) == 1
         assert mc_list[0]["management_id"] == "mc01"
         assert mc_list[0]["account_id"] == "111"
-        assert mc_account_ids == ["111"]
 
     def test_eph_prefix_applied(self):
         merged = {"provision_mcs": {"mc01": {"account_id": "111"}}}
         ctx = build_context(merged, "staging", "us-east-1", "xg4y")
-        mc_list, _ = build_mc_list(ctx, merged, "xg4y")
+        mc_list = build_mc_list(ctx, merged, "xg4y")
         assert mc_list[0]["management_id"] == "xg4y-mc01"
 
     def test_default_account_id(self):
@@ -468,7 +723,7 @@ class TestBuildMcList:
             "provision_mcs": {"mc01": {}},
         }
         ctx = build_context(merged, "staging", "us-east-1", "")
-        mc_list, _ = build_mc_list(ctx, merged, "")
+        mc_list = build_mc_list(ctx, merged, "")
         assert mc_list[0]["account_id"] == "default-account"
 
     def test_explicit_account_overrides_default(self):
@@ -477,7 +732,7 @@ class TestBuildMcList:
             "provision_mcs": {"mc01": {"account_id": "explicit-account"}},
         }
         ctx = build_context(merged, "staging", "us-east-1", "")
-        mc_list, _ = build_mc_list(ctx, merged, "")
+        mc_list = build_mc_list(ctx, merged, "")
         assert mc_list[0]["account_id"] == "explicit-account"
 
     def test_cluster_prefix_template_resolution(self):
@@ -486,7 +741,7 @@ class TestBuildMcList:
             "provision_mcs": {"mc01": {}},
         }
         ctx = build_context(merged, "staging", "us-east-1", "")
-        mc_list, _ = build_mc_list(ctx, merged, "")
+        mc_list = build_mc_list(ctx, merged, "")
         assert mc_list[0]["account_id"] == "mc-mc01-us-east-1"
 
 
@@ -747,7 +1002,7 @@ class TestConfigMergeAndRendering:
         merged = deep_merge(gd, ed)
         merged = deep_merge(merged, rc)
         ctx = build_context(merged, "staging", "us-east-1", "")
-        mc_list, _ = build_mc_list(ctx, merged, "")
+        mc_list = build_mc_list(ctx, merged, "")
         assert mc_list[0]["account_id"] == "default-mc-account"
 
     def test_management_cluster_explicit_account_overrides_default(self, tmp_path):
@@ -776,7 +1031,7 @@ class TestConfigMergeAndRendering:
         merged = deep_merge(gd, ed)
         merged = deep_merge(merged, rc)
         ctx = build_context(merged, "staging", "us-east-1", "")
-        mc_list, _ = build_mc_list(ctx, merged, "")
+        mc_list = build_mc_list(ctx, merged, "")
         assert mc_list[0]["account_id"] == "explicit-account"
 
     def test_eph_prefix_applied_to_management_id(self, tmp_path):
@@ -801,17 +1056,17 @@ class TestConfigMergeAndRendering:
         merged = deep_merge(gd, ed)
         merged = deep_merge(merged, rc)
         ctx = build_context(merged, "staging", "us-east-1", "xg4y")
-        mc_list, _ = build_mc_list(ctx, merged, "xg4y")
+        mc_list = build_mc_list(ctx, merged, "xg4y")
         assert len(mc_list) == 1
         assert mc_list[0]["management_id"] == "xg4y-mc01"
 
-    def test_eph_prefix_applied_to_regional_id(self):
+    def test_eph_prefix_stored_in_context(self):
         ctx = build_context({}, "staging", "us-east-1", "xg4y")
-        assert ctx["regional_id"] == "xg4y-regional"
+        assert ctx["eph_prefix"] == "xg4y"
 
-    def test_no_eph_prefix(self):
+    def test_empty_eph_prefix(self):
         ctx = build_context({}, "staging", "us-east-1", "")
-        assert ctx["regional_id"] == "regional"
+        assert ctx["eph_prefix"] == ""
 
     def test_revision_inheritance(self, tmp_path):
         config_dir = _create_config_structure(
@@ -961,7 +1216,7 @@ class TestConfigMergeAndRendering:
         merged = deep_merge(gd, ed)
         merged = deep_merge(merged, rc)
         ctx = build_context(merged, "staging", "us-east-1", "")
-        mc_list, _ = build_mc_list(ctx, merged, "")
+        mc_list = build_mc_list(ctx, merged, "")
         assert mc_list[0]["account_id"] == "mc-mc01-us-east-1"
 
 
