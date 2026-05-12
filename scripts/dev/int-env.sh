@@ -29,11 +29,12 @@ VAULT_KV_MOUNT="kv"
 VAULT_SECRET_PATH="selfservice/cluster-secrets-rosa-regional-platform-int/integration-creds"
 VAULT_ACCOUNTS_FIELD="int_accounts"
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/env-common.sh"
+
 # =============================================================================
 # Helpers
 # =============================================================================
-
-die() { echo "Error: $*" >&2; exit 1; }
 
 usage() {
     echo "Usage: $0 <command>"
@@ -83,99 +84,55 @@ profile_for() {
 }
 
 # Fetch config from Vault via OIDC login.
-# Sets: CENTRAL_ACCOUNT, RC_ACCOUNT, MC_ACCOUNT, INT_API_URL
+# Sets: CENTRAL_ACCOUNT, RC_ACCOUNT, MC_ACCOUNT, API_URL (as INT_API_URL)
 fetch_vault_config() {
-    echo "Fetching config from Vault (OIDC login)..."
-
-    local vault_token
-    vault_token=$(VAULT_ADDR="$VAULT_ADDR" vault login -method=oidc -token-only 2>/dev/null) \
-        || die "Vault OIDC login failed."
-
-    local accounts_json
-    accounts_json=$(VAULT_ADDR="$VAULT_ADDR" VAULT_TOKEN="$vault_token" \
-        vault kv get -mount="$VAULT_KV_MOUNT" -field="$VAULT_ACCOUNTS_FIELD" "$VAULT_SECRET_PATH" 2>/dev/null) \
-        || die "Failed to fetch '$VAULT_ACCOUNTS_FIELD' from Vault."
-
-    CENTRAL_ACCOUNT=$(echo "$accounts_json" | jq -r '.central') \
-        || die "Failed to parse 'central' from account IDs."
-    RC_ACCOUNT=$(echo "$accounts_json" | jq -r '.rc') \
-        || die "Failed to parse 'rc' from account IDs."
-    MC_ACCOUNT=$(echo "$accounts_json" | jq -r '.mc') \
-        || die "Failed to parse 'mc' from account IDs."
-
-    [[ "$CENTRAL_ACCOUNT" != "null" ]] || die "Missing 'central' in account IDs."
-    [[ "$RC_ACCOUNT" != "null" ]]      || die "Missing 'rc' in account IDs."
-    [[ "$MC_ACCOUNT" != "null" ]]       || die "Missing 'mc' in account IDs."
-
-    INT_API_URL=$(VAULT_ADDR="$VAULT_ADDR" VAULT_TOKEN="$vault_token" \
-        vault kv get -mount="$VAULT_KV_MOUNT" -field="api_url" "$VAULT_SECRET_PATH" 2>/dev/null) \
-        || die "Failed to fetch 'api_url' from Vault."
-
-    echo "Vault config loaded."
+    vault_fetch_accounts "$VAULT_SECRET_PATH" "$VAULT_ACCOUNTS_FIELD" api_url
+    parse_account central
+    parse_account rc
+    parse_account mc
+    parse_account customer
+    INT_API_URL="$API_URL"
 }
 
 # Create temporary AWS config with int profiles.
-# The credential_process calls into rosa-regional-platform-internal for SAML auth.
 setup_aws_config() {
-    local internal_repo="${INTERNAL_REPO:-$(cd "$REPO_ROOT/../rosa-regional-platform-internal" 2>/dev/null && pwd || true)}"
-    [[ -n "$internal_repo" ]] \
-        || die "rosa-regional-platform-internal not found at $REPO_ROOT/../rosa-regional-platform-internal. Set INTERNAL_REPO."
-    [[ -d "$internal_repo/infra/scripts" ]] \
-        || die "Cannot find infra/scripts/ in $internal_repo"
-
     fetch_vault_config
-
-    _aws_config_dir=$(mktemp -d)
-    export AWS_CONFIG_FILE="$_aws_config_dir/config"
-    export AWS_SHARED_CREDENTIALS_FILE="$_aws_config_dir/credentials"
-    touch "$AWS_SHARED_CREDENTIALS_FILE"
+    init_aws_config
 
     cat > "$AWS_CONFIG_FILE" <<AWSCFG
 [profile rrp-int-admin]
-credential_process = uv run --project ${internal_repo}/infra/scripts python ${internal_repo}/infra/scripts/cached_saml_credentials_process.py ${CENTRAL_ACCOUNT} ${CENTRAL_ACCOUNT}-rrp-int-admin
+credential_process = uv run --project ${_internal_repo}/infra/scripts python ${_internal_repo}/infra/scripts/cached_saml_credentials_process.py ${CENTRAL_ACCOUNT} ${CENTRAL_ACCOUNT}-rrp-int-admin
 region = ${INT_REGION}
+duration_seconds = 3600
 
 [profile rrp-int-rc]
 role_arn = arn:aws:iam::${RC_ACCOUNT}:role/OrganizationAccountAccessRole
 source_profile = rrp-int-admin
 region = ${INT_REGION}
+duration_seconds = 3600
 
 [profile rrp-int-mc]
 role_arn = arn:aws:iam::${MC_ACCOUNT}:role/OrganizationAccountAccessRole
 source_profile = rrp-int-admin
 region = ${INT_REGION}
+duration_seconds = 3600
+
+[profile rrp-int-customer]
+role_arn = arn:aws:iam::${CUSTOMER_ACCOUNT}:role/OrganizationAccountAccessRole
+source_profile = rrp-int-admin
+region = ${INT_REGION}
+duration_seconds = 3600
 AWSCFG
 
     echo "AWS config written to: $AWS_CONFIG_FILE"
-    trap "rm -rf '${_aws_config_dir}'" EXIT
 }
 
-# Resolve temporary credentials from an AWS profile for container injection.
-# Sets: _CRED_AK, _CRED_SK, _CRED_ST
-resolve_creds() {
-    local profile="$1"
-    echo "Resolving credentials for profile $profile..."
-    local creds
-    creds=$(aws configure export-credentials --profile "$profile" --format process 2>/dev/null) \
-        || die "Failed to resolve credentials for profile $profile. Have you authenticated?"
-    _CRED_AK=$(echo "$creds" | jq -r '.AccessKeyId')
-    _CRED_SK=$(echo "$creds" | jq -r '.SecretAccessKey')
-    _CRED_ST=$(echo "$creds" | jq -r '.SessionToken // empty')
-}
-
-# Build the CI container image if not already present.
-ensure_image() {
-    [[ -n "$CONTAINER_ENGINE" ]] \
-        || die "No container engine found. Install podman or docker."
-
-    if ! $CONTAINER_ENGINE image inspect "$CI_IMAGE" >/dev/null 2>&1; then
-        echo "Building CI image..."
-        local build_output
-        if ! build_output=$($CONTAINER_ENGINE build -t "$CI_IMAGE" -f ci/Containerfile ci 2>&1); then
-            echo "$build_output"
-            die "Failed to build CI image."
-        fi
-    fi
+# Resolve int profiles to static container credentials.
+write_int_container_config() {
+    write_container_config \
+        "rrp-int-rc rrp-rc ${INT_REGION}" \
+        "rrp-int-mc rrp-mc ${INT_REGION}" \
+        "rrp-int-customer rrp-customer ${INT_REGION}"
 }
 
 # =============================================================================
@@ -184,90 +141,22 @@ ensure_image() {
 
 bastion_setup() {
     local cluster_type="$1"
-    local cluster_id profile
+    local cluster_id
 
     cluster_id=$(cluster_id_for "$cluster_type")
-    profile=$(profile_for "$cluster_type")
-    export ecs_cluster="${cluster_id}-bastion"
 
     setup_aws_config
-    export AWS_PROFILE="$profile"
+    export AWS_PROFILE="$(profile_for "$cluster_type")"
     export AWS_DEFAULT_REGION="$INT_REGION"
     export AWS_REGION="$INT_REGION"
 
     echo "Connecting to integration bastion..."
     echo "  Cluster type: $cluster_type"
     echo "  Cluster ID:   $cluster_id"
-    echo "  ECS cluster:  $ecs_cluster"
     echo "  Region:       $INT_REGION"
     echo ""
 
-    # Check for an existing running task
-    echo "==> Checking for running bastion tasks..."
-    local existing_task
-    existing_task=$(aws ecs list-tasks --cluster "$ecs_cluster" \
-        --desired-status RUNNING --query 'taskArns[0]' --output text 2>/dev/null || true)
-
-    if [[ -n "$existing_task" && "$existing_task" != "None" ]]; then
-        export task_id=$(echo "$existing_task" | awk -F'/' '{print $NF}')
-        echo "==> Found existing running task: $task_id"
-    else
-        echo "==> No running task found, starting a new one..."
-
-        local task_def="${cluster_id}-bastion"
-        local sg_id subnets vpc_id
-
-        sg_id=$(aws ec2 describe-security-groups \
-            --filters "Name=group-name,Values=${cluster_id}-bastion" \
-            --query 'SecurityGroups[0].GroupId' --output text) \
-            || die "Could not find security group '${cluster_id}-bastion'."
-        [[ "$sg_id" != "None" ]] \
-            || die "Security group '${cluster_id}-bastion' not found."
-
-        vpc_id=$(aws ec2 describe-security-groups \
-            --group-ids "$sg_id" \
-            --query 'SecurityGroups[0].VpcId' --output text)
-
-        subnets=$(aws ec2 describe-subnets \
-            --filters "Name=vpc-id,Values=${vpc_id}" "Name=tag:Name,Values=*private*" \
-            --query 'Subnets[].SubnetId' --output text \
-            | tr '\t' ',') \
-            || die "Could not find private subnets in VPC $vpc_id."
-
-        echo "    Task def:  $task_def"
-        echo "    SG:        $sg_id"
-        echo "    Subnets:   $subnets"
-
-        AWS_PAGER="" aws ecs run-task \
-            --cluster "$ecs_cluster" \
-            --task-definition "$task_def" \
-            --launch-type FARGATE \
-            --enable-execute-command \
-            --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$sg_id],assignPublicIp=DISABLED}" \
-            > /dev/null
-
-        export task_id=$(aws ecs list-tasks --cluster "$ecs_cluster" \
-            --query 'taskArns[0]' --output text | awk -F'/' '{print $NF}')
-    fi
-
-    # Wait for task to be running
-    echo "==> Waiting for task to be running..."
-    aws ecs wait tasks-running --cluster "$ecs_cluster" --tasks "$task_id"
-
-    # Wait for the ECS exec agent to be ready
-    echo "==> Waiting for execute command agent..."
-    local agent_status=""
-    for i in $(seq 1 30); do
-        agent_status=$(aws ecs describe-tasks \
-            --cluster "$ecs_cluster" --tasks "$task_id" --output json \
-            | jq -r '.tasks[0].containers[] | select(.name=="bastion") | .managedAgents[] | select(.name=="ExecuteCommandAgent") | .lastStatus' 2>/dev/null || true)
-        if [[ "$agent_status" == "RUNNING" ]]; then
-            break
-        fi
-        sleep 2
-    done
-    [[ "$agent_status" == "RUNNING" ]] \
-        || die "Execute command agent did not become ready (status: ${agent_status:-unknown})"
+    bastion_run_task "$cluster_id"
 }
 
 # =============================================================================
@@ -276,16 +165,14 @@ bastion_setup() {
 
 cmd_shell() {
     setup_aws_config
+    write_int_container_config
 
     local api_url="${API_URL:-$INT_API_URL}"
-    resolve_creds "rrp-int-rc"
-
-    local cred_flags="-e AWS_ACCESS_KEY_ID=$_CRED_AK -e AWS_SECRET_ACCESS_KEY=$_CRED_SK"
-    [[ -z "$_CRED_ST" ]] || cred_flags="$cred_flags -e AWS_SESSION_TOKEN=$_CRED_ST"
 
     # shellcheck disable=SC2086
     $CONTAINER_ENGINE run --rm -it \
-        $cred_flags \
+        $_CONTAINER_AWS_FLAGS \
+        -e "AWS_PROFILE=rrp-rc" \
         -e "AWS_DEFAULT_REGION=$INT_REGION" \
         -e "AWS_REGION=$INT_REGION" \
         -e "API_URL=$api_url" \
@@ -582,9 +469,9 @@ cmd_e2e() {
     local e2e_repo="${E2E_REPO:-https://github.com/openshift-online/rosa-regional-platform-api.git}"
 
     setup_aws_config
+    write_int_container_config
 
     local api_url="${API_URL:-$INT_API_URL}"
-    resolve_creds "rrp-int-rc"
 
     echo "Running e2e tests..."
     echo "  API_URL:    $api_url"
@@ -593,12 +480,10 @@ cmd_e2e() {
     echo "  E2E_REPO:   $e2e_repo"
 
     $CONTAINER_ENGINE run --rm \
+        $_CONTAINER_AWS_FLAGS \
         -v "${REPO_ROOT}:/workspace:ro,z" \
         -w /workspace \
         -e "BASE_URL=$api_url" \
-        -e "AWS_ACCESS_KEY_ID=$_CRED_AK" \
-        -e "AWS_SECRET_ACCESS_KEY=$_CRED_SK" \
-        ${_CRED_ST:+-e "AWS_SESSION_TOKEN=$_CRED_ST"} \
         -e "AWS_DEFAULT_REGION=$INT_REGION" \
         -e "AWS_REGION=$INT_REGION" \
         -e "E2E_REF=$e2e_ref" \
@@ -615,18 +500,13 @@ cmd_collect_logs() {
     esac
 
     setup_aws_config
+    write_int_container_config
 
-    # Resolve credentials for both accounts
-    resolve_creds "rrp-int-rc"
-    export REGIONAL_AK="$_CRED_AK"
-    export REGIONAL_SK="$_CRED_SK"
-    ${_CRED_ST:+export REGIONAL_ST="$_CRED_ST"}
-
-    resolve_creds "rrp-int-mc"
-    export MANAGEMENT_AK="$_CRED_AK"
-    export MANAGEMENT_SK="$_CRED_SK"
-    ${_CRED_ST:+export MANAGEMENT_ST="$_CRED_ST"}
-
+    # collect-cluster-logs.sh runs on the host (not in a container) but needs
+    # the standardized profile names (rrp-rc, rrp-mc). Point it at the resolved
+    # container config which has those profiles with static credentials.
+    export AWS_CONFIG_FILE="$_CONTAINER_CONFIG"
+    export AWS_SHARED_CREDENTIALS_FILE=/dev/null
     export AWS_REGION="$INT_REGION"
     export CLUSTER_PREFIX=""
     if [[ -n "${ARTIFACT_DIR:-}" ]]; then
