@@ -33,10 +33,13 @@ blocklist:
 presets:
   globals:
     filters:
-      # Exclude all app-sre-infra resources
       __global__:
+        # Exclude all app-sre-infra resources
         - property: tag:app
           value: "app-sre-infra"
+        # Global filter to ignore resources
+        - property: "tag:platform-janitor/lifecycle"
+          value: "ignore"
       S3Object:
         - property: BucketName
           type: regex
