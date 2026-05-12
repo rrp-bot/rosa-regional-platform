@@ -21,7 +21,7 @@ If the config file doesn't exist or can't be read, use the default values shown 
 
 $ARGUMENTS should be either:
 
-1. Feature requirements, indicating a new feature specification should be started
+1. Feature requirements, indiciating a new feature specification should be started
 2. Feedback on requirements or implementation plans, indicating that finalization step is likely in progress and review is occurring asynchronously.
 3. A short name, indicating the user wants to pick up where they left off in this workflow for the feature with the given short name.
 
@@ -79,7 +79,7 @@ Guide the user through generating a requirements specification.
 - Offer three options:
   1. Interactive review session of the requirements documentation
   2. Stop here for asynchronous review and feedback, the user being expected to review the requirements document.
-  3. Move to the next phase, skipping review (not recommended).
+  3. Move to the next phase, skipping review (not reccomended).
 
 #### Step 6: (optional) Interactive review session
 
@@ -139,7 +139,7 @@ Technical specifications, such as OpenAPI, CLI reference, API output, Diagrams, 
   1. Stop here for asynchronous review and feedback of the updated requirements document.
   2. Move to implementation planning phase
 
-### Phase 3: Implementation Planning
+### Phase 2: Implementation Planning
 
 When the user is ready for implementation planning:
 
@@ -220,25 +220,21 @@ When the user is ready for implementation planning:
 
 ### Discovery Questions:
 
-```markdown
+```
 ## Q1: Will users interact with this feature through a visual interface?
-
 **Default if unknown:** Yes (most features have some UI component)
 
 ## Q2: Does this feature need to work on mobile devices?
-
 **Default if unknown:** Yes (mobile-first is standard practice)
 ```
 
 ### Expert Questions:
 
-```markdown
+```
 ## Q7: Should we extend the existing UserService at services/UserService.ts?
-
 **Default if unknown:** Yes (maintains architectural consistency)
 
 ## Q8: Will this require new database migrations in db/migrations/?
-
 **Default if unknown:** No (based on similar features not requiring schema changes)
 ```
 
@@ -264,7 +260,7 @@ When the user is ready for implementation planning:
 
 The specware tool is necessary to facilitate the basic operations of the workflow.
 
-If the specware tool is not available, immediately stop and instruct the user to install the tool.
+If the specware tool is not avaialble, immediately stop and instruct the user to install the tool.
 
 **Feature Management**
 specware feature new-requirements <short-name> # Add requirements to feature (creates dir if not exist)

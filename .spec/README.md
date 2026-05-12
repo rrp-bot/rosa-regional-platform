@@ -8,7 +8,7 @@ Spec-driven development guides AI code generation through structured specificati
 
 ### No Maintenance
 
-Specs are point-in-time artifacts - they are not maintained or used in automation outside building features. Specs are not expected to be updated to reflect changes in a feature post-implementation.
+Specs are point-in-time artifacts - they are not maintained or used in automation outside of building features. Specs are not expected to be updated to reflect changes in a feature post-implementation.
 
 ## Getting Started
 
