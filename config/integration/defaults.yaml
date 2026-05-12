@@ -7,3 +7,7 @@ regional_cluster:
 
 management_cluster_defaults:
   enable_bastion: true
+
+observability:
+  pagerduty:
+    enabled: true
