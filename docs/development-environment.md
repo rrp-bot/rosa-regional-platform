@@ -8,15 +8,18 @@ Each environment gets a unique ID that prefixes all provisioned resources, keepi
 
 The following tools must be in `PATH` for all ephemeral environment commands:
 
-| Tool              | Purpose                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------- |
-| `vault`           | Fetching AWS credentials (not required if all credential environment variables are pre-set) |
-| `git`             | Repository operations                                                                       |
-| `python3`         | Config rendering                                                                            |
-| `fzf`             | Interactive selection menus                                                                 |
-| `podman`/`docker` | Running the ephemeral environment container                                                 |
+| Tool              | Purpose                                                                 |
+| ----------------- | ----------------------------------------------------------------------- |
+| `vault`           | OIDC login for fetching AWS SAML credentials                            |
+| `uv`              | Running the SAML credential process (`cached_saml_credentials_process.py`) |
+| `aws`             | AWS CLI for profile-based credential resolution                         |
+| `jq`              | JSON processing for credential handling                                 |
+| `git`             | Repository operations                                                   |
+| `python3`         | Config rendering                                                        |
+| `fzf`             | Interactive selection menus                                             |
+| `podman`/`docker` | Running the ephemeral environment container                             |
 
-Port forwarding additionally requires `aws` and `lsof`.
+Port forwarding additionally requires `lsof`.
 
 ## Provision
 
@@ -219,7 +222,7 @@ Available services per cluster type:
 
 The command fetches the ArgoCD admin password automatically and prints it to the terminal. Port forwards remain active until you press `Ctrl+C`.
 
-Prerequisites: `vault`, `aws`, `fzf`, and `lsof` must be in `PATH`.
+Port forwarding requires `lsof` in addition to the standard prerequisites listed above.
 
 ## Run E2E Tests
 
