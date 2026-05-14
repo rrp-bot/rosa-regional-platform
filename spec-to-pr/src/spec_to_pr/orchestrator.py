@@ -31,6 +31,7 @@ class Config:
     storage_path: Path = field(default_factory=lambda: Path(".spec-to-pr/sessions"))
     agents_path: Path = field(default_factory=lambda: Path(".claude/agents"))
     conversations_path: Path = field(default_factory=lambda: Path("conversations"))
+    project_docs_path: Path | None = None
     max_attempts: int = 3
     workspace: Path = field(default_factory=Path.cwd)
     skip_deploy: bool = False
@@ -43,6 +44,8 @@ class Orchestrator:
         self.storage = FileStorage(config.storage_path)
         self.persona_loader = PersonaLoader(config.agents_path)
         self._circuit_breaker: Optional[CircuitBreaker] = None
+        self._project_docs: Optional[str] = None
+        self._load_project_docs()
 
     # ------------------------------------------------------------------
     # Public API
@@ -194,6 +197,24 @@ class Orchestrator:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _load_project_docs(self) -> None:
+        """Load project documentation (CLAUDE.md) to provide environment context."""
+        try:
+            # Try explicit path first
+            if self.config.project_docs_path and self.config.project_docs_path.exists():
+                doc_path = self.config.project_docs_path
+            else:
+                # Auto-discover CLAUDE.md in workspace
+                doc_path = self.config.workspace / "CLAUDE.md"
+                if not doc_path.exists():
+                    log.debug("No CLAUDE.md found at %s", doc_path)
+                    return
+
+            self._project_docs = doc_path.read_text()
+            log.info("Loaded project documentation from %s (%d chars)", doc_path, len(self._project_docs))
+        except Exception as exc:
+            log.warning("Failed to load project documentation: %s", exc)
+
     def _should_run_tests(self, session: OrchestratorSession) -> bool:
         """Use Claude to infer whether testing is needed based on the changes."""
         try:
@@ -297,6 +318,11 @@ Keep the reason brief (one sentence)."""
                 conversations_dir=self.config.conversations_path,
             )
             system_prompt = "You are a software developer. Implement the requested changes."
+
+        # Append project documentation if available
+        if self._project_docs:
+            system_prompt += f"\n\n# Project Documentation\n\n{self._project_docs}"
+
         return runner, system_prompt
 
     def _run_claude_agent(self, persona_name: str, session: OrchestratorSession) -> None:

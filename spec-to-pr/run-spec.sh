@@ -47,4 +47,6 @@ podman run --rm \
   -e "https_proxy=${https_proxy}" \
   -e "http_proxy=${http_proxy}" \
   -e "AWS_CA_BUNDLE=${AWS_CA_BUNDLE}" \
-  spec-to-pr run --file "/workspace/${SPEC_FILE#$REPO_ROOT/}"
+  spec-to-pr run \
+    --file "/workspace/${SPEC_FILE#$REPO_ROOT/}" \
+    --project-docs /workspace/CLAUDE.md
