@@ -437,16 +437,47 @@ Keep the reason brief (one sentence)."""
         ]
 
     def _create_pr(self, repo_name: str, branch: str, session: OrchestratorSession) -> Optional[str]:
-        # Push branch to remote first
-        log.info("Pushing branch %s to origin", branch)
+        # Detect the fork remote to push to (not upstream origin)
+        remote_result = subprocess.run(
+            ["git", "remote", "-v"],
+            capture_output=True,
+            text=True,
+            cwd=self.config.workspace,
+        )
+
+        # Parse remotes and look for a fork
+        remotes = {}
+        for line in remote_result.stdout.split('\n'):
+            parts = line.split()
+            if len(parts) >= 2:
+                remote_name = parts[0]
+                remote_url = parts[1]
+                if '(push)' in line:  # Only care about push URLs
+                    remotes[remote_name] = remote_url
+
+        # Strategy: prefer any remote that isn't 'origin', or has 'bot'/'fork' in name
+        remote_to_use = None
+        for remote_name, remote_url in remotes.items():
+            if remote_name != 'origin':
+                remote_to_use = remote_name
+                break
+            if 'bot' in remote_name.lower() or 'fork' in remote_name.lower():
+                remote_to_use = remote_name
+                break
+
+        if not remote_to_use:
+            remote_to_use = 'origin'  # Fallback
+
+        # Push branch to fork
+        log.info("Pushing branch %s to %s (%s)", branch, remote_to_use, remotes.get(remote_to_use, 'unknown'))
         push_result = subprocess.run(
-            ["git", "push", "-u", "origin", branch],
+            ["git", "push", "-u", remote_to_use, branch],
             capture_output=True,
             text=True,
             cwd=self.config.workspace,
         )
         if push_result.returncode != 0:
-            log.error("git push failed: %s", push_result.stderr)
+            log.error("git push to %s failed: %s", remote_to_use, push_result.stderr)
             return None
 
         # Create PR
