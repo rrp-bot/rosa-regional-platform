@@ -1,18 +1,22 @@
 """End-to-end tests for `spec-to-pr validate --file PATH`."""
 from __future__ import annotations
 
+import shutil
 import subprocess
 import textwrap
 from pathlib import Path
 
 import pytest
 
-CLI = ".venv/bin/spec-to-pr"
+# Resolve the CLI binary at import time so the tests work regardless of whether
+# the package is installed inside a project-local `.venv/` or system-wide (e.g.
+# via `pip install -e .` in a container/CI environment).
+_CLI_BINARY = shutil.which("spec-to-pr") or ".venv/bin/spec-to-pr"
 
 
 def _run(file_path: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [CLI, "validate", "--file", file_path],
+        [_CLI_BINARY, "validate", "--file", file_path],
         capture_output=True,
         text=True,
     )
