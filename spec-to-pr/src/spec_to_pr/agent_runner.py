@@ -9,9 +9,11 @@ completion or hits the turn limit.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -116,10 +118,12 @@ class AgentRunner:
         workspace: Path,
         model: str = "claude-sonnet-4-6",
         max_turns: int = 50,
+        conversations_dir: Path | None = None,
     ) -> None:
         self.workspace = Path(workspace)
         self.model = model
         self.max_turns = max_turns
+        self.conversations_dir = Path(conversations_dir) if conversations_dir else None
         if _VERTEX_PROJECT:
             # CLAUDE_CODE_SKIP_VERTEX_AUTH=1: proxy injects real credentials at the network layer.
             # Pass a dummy access_token so AnthropicVertex skips google.auth ADC lookup.
@@ -135,7 +139,7 @@ class AgentRunner:
         else:
             self.client = anthropic.Anthropic()
 
-    def run(self, system_prompt: str, task: str) -> str:
+    def run(self, system_prompt: str, task: str, work_id: str | None = None) -> str:
         """
         Drive the agent until it stops calling tools or hits max_turns.
         Returns the final text response.
@@ -186,7 +190,63 @@ class AgentRunner:
         else:
             log.warning("Agent hit max_turns=%d without finishing", self.max_turns)
 
+        # Save conversation transcript if conversations_dir is configured
+        if self.conversations_dir and work_id:
+            self._save_conversation(work_id, system_prompt, messages, final_text)
+
         return final_text
+
+    def _save_conversation(
+        self, work_id: str, system_prompt: str, messages: list[dict], final_text: str
+    ) -> None:
+        """Save the conversation transcript to the conversations directory."""
+        try:
+            self.conversations_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            filename = f"{work_id}_{timestamp}.jsonl"
+            filepath = self.conversations_dir / filename
+
+            with open(filepath, 'w') as f:
+                # Write metadata header
+                f.write(json.dumps({
+                    "type": "metadata",
+                    "work_id": work_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "model": self.model,
+                    "system_prompt": system_prompt,
+                }) + '\n')
+
+                # Write each message turn
+                for msg in messages:
+                    f.write(json.dumps({
+                        "type": "message",
+                        "role": msg["role"],
+                        "content": self._serialize_content(msg["content"])
+                    }) + '\n')
+
+                # Write final result
+                f.write(json.dumps({
+                    "type": "result",
+                    "final_text": final_text,
+                }) + '\n')
+
+            log.info("Conversation saved to %s", filepath)
+        except Exception as e:
+            log.warning("Failed to save conversation: %s", e)
+
+    def _serialize_content(self, content: Any) -> Any:
+        """Serialize content for JSON storage, handling SDK objects."""
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, list):
+            return [self._serialize_content(item) for item in content]
+        elif hasattr(content, 'model_dump'):
+            # Anthropic SDK objects have model_dump()
+            return content.model_dump()
+        elif isinstance(content, dict):
+            return {k: self._serialize_content(v) for k, v in content.items()}
+        else:
+            return str(content)
 
     # ------------------------------------------------------------------
     # Tool implementations

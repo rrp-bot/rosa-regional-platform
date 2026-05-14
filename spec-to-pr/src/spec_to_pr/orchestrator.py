@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 class Config:
     storage_path: Path = field(default_factory=lambda: Path(".spec-to-pr/sessions"))
     agents_path: Path = field(default_factory=lambda: Path(".claude/agents"))
+    conversations_path: Path = field(default_factory=lambda: Path("conversations"))
     max_attempts: int = 3
     workspace: Path = field(default_factory=Path.cwd)
     skip_deploy: bool = False
@@ -122,6 +123,13 @@ class Orchestrator:
                 log.info("skip_deploy=True — jumping straight to PR submission")
                 session.current_phase = Phase.PR_SUBMISSION
                 return
+
+            # Infer if testing is needed based on changes
+            if not self._should_run_tests(session):
+                log.info("Claude inference: testing not needed — jumping to PR submission")
+                session.current_phase = Phase.PR_SUBMISSION
+                return
+
             self.state_machine.transition(session, implementation_complete=True)
         except Exception as exc:
             log.error("Implementation failed: %s", exc)
@@ -133,7 +141,7 @@ class Orchestrator:
 
     def _deploy(self, session: OrchestratorSession) -> None:
         log.info("Deploying to ephemeral environment")
-        ok = self._run_make("ephemeral-dev") and self._run_make("resync")
+        ok = self._run_make("ephemeral-provision")
         self.state_machine.transition(session, deployment_successful=ok)
 
     def _run_e2e(self, session: OrchestratorSession) -> None:
@@ -186,6 +194,78 @@ class Orchestrator:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _should_run_tests(self, session: OrchestratorSession) -> bool:
+        """Use Claude to infer whether testing is needed based on the changes."""
+        try:
+            # Get git diff of changes
+            result = subprocess.run(
+                ["git", "diff", "--name-status", "HEAD"],
+                capture_output=True,
+                text=True,
+                cwd=self.config.workspace,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                log.warning("Failed to get git diff, assuming tests needed")
+                return True
+
+            changed_files = result.stdout.strip()
+            if not changed_files:
+                log.info("No file changes detected, skipping tests")
+                return False
+
+            # Ask Claude to infer if tests are needed
+            runner = AgentRunner(
+                workspace=self.config.workspace,
+                model="claude-sonnet-4-6",
+                max_turns=1,
+            )
+
+            task = f"""Analyze these file changes and determine if ephemeral environment testing is needed.
+
+Changed files:
+{changed_files}
+
+Context from the spec:
+{session.work_item.spec_content}
+
+Guidelines:
+- Documentation-only changes (.md files) typically don't need testing
+- Comments-only changes don't need testing
+- Log message changes typically don't need testing
+- Infrastructure changes (terraform/, argocd/) need testing
+- Code changes that affect runtime behavior need testing
+- Test file changes need testing
+
+Respond with EXACTLY one of:
+- "SKIP_TESTS: <reason>" if testing is not needed
+- "RUN_TESTS: <reason>" if testing is needed
+
+Keep the reason brief (one sentence)."""
+
+            response = runner.run(
+                system_prompt="You are a software engineer deciding if changes need integration testing.",
+                task=task,
+            )
+
+            # Parse response
+            response = response.strip()
+            if response.startswith("SKIP_TESTS:"):
+                reason = response.replace("SKIP_TESTS:", "").strip()
+                log.info("Claude inference: skip tests - %s", reason)
+                return False
+            elif response.startswith("RUN_TESTS:"):
+                reason = response.replace("RUN_TESTS:", "").strip()
+                log.info("Claude inference: run tests - %s", reason)
+                return True
+            else:
+                log.warning("Unexpected response from Claude: %s, defaulting to run tests", response[:100])
+                return True
+
+        except Exception as exc:
+            log.warning("Failed to infer test requirement: %s, defaulting to run tests", exc)
+            return True
+
     def _run_make(self, target: str, **kwargs) -> bool:
         result = subprocess.run(
             ["make", target],
@@ -207,11 +287,15 @@ class Orchestrator:
                 workspace=self.config.workspace,
                 model=sdk_cfg.get("model", "claude-sonnet-4-6"),
                 max_turns=sdk_cfg.get("max_turns", 50),
+                conversations_dir=self.config.conversations_path,
             )
             system_prompt = persona.build_system_prompt()
         except FileNotFoundError:
             log.warning("Persona %r not found — using defaults", persona_name)
-            runner = AgentRunner(workspace=self.config.workspace)
+            runner = AgentRunner(
+                workspace=self.config.workspace,
+                conversations_dir=self.config.conversations_path,
+            )
             system_prompt = "You are a software developer. Implement the requested changes."
         return runner, system_prompt
 
@@ -225,7 +309,11 @@ class Orchestrator:
             "Implement all changes described above. "
             "When done, respond with 'Implementation complete.'"
         )
-        result = runner.run(system_prompt=system_prompt, task=task)
+        result = runner.run(
+            system_prompt=system_prompt,
+            task=task,
+            work_id=session.work_item.work_id
+        )
         log.info("Implementation agent finished. Summary: %s", result[:200])
 
     def _run_claude_agent_debug(
@@ -242,7 +330,11 @@ class Orchestrator:
             "Investigate logs, pod state, and recent changes. "
             "Return a bullet-point list of findings and hypotheses."
         )
-        response = runner.run(system_prompt=system_prompt, task=task)
+        response = runner.run(
+            system_prompt=system_prompt,
+            task=task,
+            work_id=f"{session.work_item.work_id}-debug"
+        )
         return [
             line.lstrip("-• ").strip()
             for line in response.splitlines()

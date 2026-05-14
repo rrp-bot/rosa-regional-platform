@@ -31,6 +31,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--max-attempts", type=int, default=3, metavar="N")
     run_p.add_argument("--storage", default=".spec-to-pr/sessions", metavar="PATH")
     run_p.add_argument("--agents", default=".claude/agents", metavar="PATH")
+    run_p.add_argument("--conversations", default="/conversations", metavar="PATH")
 
     # ---- status ----
     status_p = sub.add_parser("status", help="Show session status for a work ID")
@@ -42,6 +43,7 @@ def _build_parser() -> argparse.ArgumentParser:
     resume_p.add_argument("--work-id", required=True, metavar="ID")
     resume_p.add_argument("--storage", default=".spec-to-pr/sessions", metavar="PATH")
     resume_p.add_argument("--agents", default=".claude/agents", metavar="PATH")
+    resume_p.add_argument("--conversations", default="/conversations", metavar="PATH")
     resume_p.add_argument("--max-attempts", type=int, default=3, metavar="N")
 
     # ---- validate ----
@@ -72,6 +74,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     config = Config(
         storage_path=Path(args.storage),
         agents_path=Path(args.agents),
+        conversations_path=Path(args.conversations),
         max_attempts=args.max_attempts,
         skip_deploy=args.skip_deploy,
     )
@@ -130,6 +133,7 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     config = Config(
         storage_path=Path(args.storage),
         agents_path=Path(args.agents),
+        conversations_path=Path(args.conversations),
         max_attempts=args.max_attempts,
     )
     orch = Orchestrator(config)
