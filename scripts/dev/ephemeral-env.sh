@@ -204,6 +204,16 @@ fetch_vault_config() {
 
 # Create temporary AWS config with ephemeral profiles.
 setup_aws_config() {
+    # If AWS credentials already exist (agent VM environment), use them
+    if grep -q "^\[rrp-rc\]" ~/.aws/credentials 2>/dev/null; then
+        echo "Using pre-existing AWS credentials (agent VM environment)"
+        export AWS_SHARED_CREDENTIALS_FILE=${AWS_SHARED_CREDENTIALS_FILE:-~/.aws/credentials}
+        export AWS_CONFIG_FILE=${AWS_CONFIG_FILE:-/dev/null}
+        # Set GITHUB_TOKEN from environment if not already set
+        export GITHUB_TOKEN=${GITHUB_TOKEN:-}
+        return 0
+    fi
+
     fetch_vault_config
     init_aws_config
 
@@ -243,6 +253,13 @@ AWSCFG
 
 # Resolve ephemeral profiles to static container credentials.
 write_eph_container_config() {
+    # If using pre-existing credentials (agent VM), mount the credentials file directly
+    if [[ "${AWS_SHARED_CREDENTIALS_FILE:-}" == *"/.aws/credentials"* ]]; then
+        _CONTAINER_CREDS="$AWS_SHARED_CREDENTIALS_FILE"
+        _CONTAINER_AWS_FLAGS="-v ${_CONTAINER_CREDS}:/tmp/aws-credentials:ro,z -e AWS_SHARED_CREDENTIALS_FILE=/tmp/aws-credentials -e AWS_CONFIG_FILE=/dev/null"
+        return 0
+    fi
+
     write_container_config \
         "rrp-ephemeral-central rrp-central us-east-1" \
         "rrp-ephemeral-rc rrp-rc us-east-1" \
@@ -307,7 +324,12 @@ bastion_setup() {
 # Check that required CLI tools are available.
 preflight() {
     local missing=""
-    for tool in vault jq uv aws git python3 fzf; do
+    # vault and fzf only needed when not using pre-existing credentials
+    local required_tools="jq uv aws git python3"
+    if ! grep -q "^\[rrp-rc\]" ~/.aws/credentials 2>/dev/null; then
+        required_tools="vault fzf $required_tools"
+    fi
+    for tool in $required_tools; do
         command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
     done
     [[ -n "$CONTAINER_ENGINE" ]] || missing="$missing podman/docker"
