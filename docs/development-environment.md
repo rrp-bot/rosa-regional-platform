@@ -110,9 +110,9 @@ Example:
 ```
 Ephemeral environments:
 
-ID           REPO                                          BRANCH                    REGION       STATE                  CREATED              API_URL
------------- --------------------------------------------- ------------------------- ------------ ---------------------- -------------------- -------
-6bd2d3d7     typeid/rosa-regional-platform                 ROSAENG-143               us-east-1    ready                  2026-03-19T10:14:23Z https://thfvcunmr3.execute-api.us-east-1.amazonaws.com/prod
+ID           REPO                                          BRANCH                    REGION       STATE                  CREATED              API_URL                                                      RHOBS_API_URL
+------------ --------------------------------------------- ------------------------- ------------ ---------------------- -------------------- ------------------------------------------------------------ ------------------------------------------------------------
+6bd2d3d7     typeid/rosa-regional-platform                 ROSAENG-143               us-east-1    ready                  2026-03-19T10:14:23Z https://thfvcunmr3.execute-api.us-east-1.amazonaws.com/prod  https://abc123xyz.execute-api.us-east-1.amazonaws.com/prod
 
 To clear list: rm .ephemeral-envs
 ```
