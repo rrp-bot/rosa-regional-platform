@@ -62,6 +62,7 @@ The **ROSA Regional Platform** is a strategic redesign of Red Hat OpenShift Serv
 - **Regional Isolation**: Each region operates independently with minimal cross-region dependencies
 - **Explicit Feature Flags**: Optional or environment-specific infrastructure (e.g., CloudTrail, PagerDuty, resources with per-account limits) should be gated behind `enable_*` configuration flags. Avoid patterns like checking against the environment's name to change behavior or functionality.
   - Feature flags should default to what keeps the best developer experience — focus on the lowest barrier to getting a new region started. We'd rather have verbose production configs than require developers to understand every flag just to get going.
+- **Centralized ESO Pod Identity**: The regional cluster provisions a single IAM role and EKS pod identity association for External Secrets Operator, granting it access to SSM Parameter Store and Secrets Manager within the regional namespace. Individual Terraform modules must not create their own ESO pod identity associations — doing so fragments IAM management and can conflict with the central role.
 
 ### Key Design Decisions
 
