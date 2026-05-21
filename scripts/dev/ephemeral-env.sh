@@ -147,8 +147,6 @@ select_env() {
     if [[ -n "${ID:-}" ]]; then
         BUILD_ID="$ID"
     else
-        command -v fzf >/dev/null 2>&1 \
-            || die "fzf is required for interactive selection. Install fzf or pass ID=<id> directly."
         [[ -f "$ENVS_FILE" && -s "$ENVS_FILE" ]] \
             || die "No environments found in $ENVS_FILE."
 
@@ -159,11 +157,18 @@ select_env() {
         local selected
         local candidate_count=$(wc -l <<< "$candidates")
 
-        if [ $auto_select_single == true ] && [ $candidate_count -eq 1 ]; then
+        if [ "$candidate_count" -eq 1 ]; then
             selected="$candidates"
             BUILD_ID=$(echo "$selected" | awk '{print $1}')
-            echo "Only one ready environment found. Defaulting to: $BUILD_ID"
+            echo "Only one matching environment found. Defaulting to: $BUILD_ID"
+        elif [ "$auto_select_single" == true ]; then
+            # Multiple candidates — pick the most recently created one
+            selected=$(echo "$candidates" | tail -1)
+            BUILD_ID=$(echo "$selected" | awk '{print $1}')
+            echo "Auto-selecting most recent environment: $BUILD_ID"
         else
+            command -v fzf >/dev/null 2>&1 \
+                || die "fzf is required for interactive selection. Install fzf or pass ID=<id> directly."
             selected=$(echo "$candidates" | fzf --height=20 --header="$header") \
                 || { echo "Aborted."; exit 1; }
             BUILD_ID=$(echo "$selected" | awk '{print $1}')
@@ -989,7 +994,8 @@ cmd_e2e() {
     # Select environment (ready only)
     select_env "STATE=ready" \
         "Select environment for e2e tests:" \
-        "No ready environments found."
+        "No ready environments found." \
+        true
 
     local api_url region
     api_url=$(get_field "$ENV_LINE" API_URL)
