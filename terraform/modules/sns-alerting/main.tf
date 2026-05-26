@@ -148,7 +148,7 @@ resource "aws_iam_role_policy" "alertmanager_sns" {
         Effect = "Allow"
         Action = [
           "kms:Decrypt",
-          "kms:GenerateDataKey"
+          "kms:GenerateDataKey*"
         ]
         Resource = [
           aws_kms_key.sns_alerts.arn
