@@ -79,6 +79,11 @@ spec:
             hyperfleet.io/cluster-id: "{{ .clusterId }}"
           annotations:
             hyperfleet.io/generation: "{{ .generation }}"
+            # Enqueues the HostedCluster for reconciliation when this ConfigMap is
+            # created/updated by ManifestWork, ensuring the HC controller syncs it
+            # to the HCP namespace even if the initial reconcile raced ahead of
+            # ManifestWork applying it.
+            hypershift.openshift.io/cluster: "clusters-{{ .clusterId }}/{{ .clusterName }}"
         data:
           config.yaml: |
             clusterID: {{ .clusterId }}
