@@ -80,6 +80,18 @@ hyperfleet-api-chart:
         mountPath: /mnt/secrets-store
         readOnly: true
 
+    # Monitoring configuration for Prometheus
+    monitoring:
+      serviceMonitor:
+        # Enable ServiceMonitor creation for Prometheus scraping
+        enabled: true
+        # Scrape interval
+        interval: 30s
+        # Scrape timeout (must be less than interval)
+        scrapeTimeout: 10s
+        # Honor labels from the target to avoid overwriting
+        honorLabels: true
+
 # SecretProviderClass configuration for AWS Pod Identity
 secretProviderClass:
   # Enable SecretProviderClass creation
