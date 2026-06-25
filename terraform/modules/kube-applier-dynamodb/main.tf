@@ -7,8 +7,8 @@
 # credentials (analogous to the Mint-IoT stage for Maestro).
 #
 # Table naming follows the kube-applier-aws convention:
-#   Prefix (--specs-table):  mc-{mc}-specs
-#   Prefix (--status-table): mc-{mc}-status
+#   Prefix (--specs-table):  {mc_name}-specs
+#   Prefix (--status-table): {mc_name}-status
 #   Suffixes appended by the client: -applydesires, -deletedesires, -readdesires
 #
 # Specs tables have DynamoDB Streams enabled — the controller uses them to

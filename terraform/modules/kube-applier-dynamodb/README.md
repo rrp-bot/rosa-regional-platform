@@ -6,24 +6,24 @@ CodePipeline stage.
 
 ## Tables Created
 
-For each MC (`mc-{mc_name}`), six tables are created:
+For each MC, six tables are created using `{mc_name}` as the prefix:
 
 | Table | Type | Streams |
 |-------|------|---------|
-| `mc-{mc}-specs-applydesires` | specs | yes (NEW_AND_OLD_IMAGES) |
-| `mc-{mc}-specs-deletedesires` | specs | yes |
-| `mc-{mc}-specs-readdesires` | specs | yes |
-| `mc-{mc}-status-applydesires` | status | no |
-| `mc-{mc}-status-deletedesires` | status | no |
-| `mc-{mc}-status-readdesires` | status | no |
+| `{mc_name}-specs-applydesires` | specs | yes (NEW_AND_OLD_IMAGES) |
+| `{mc_name}-specs-deletedesires` | specs | yes |
+| `{mc_name}-specs-readdesires` | specs | yes |
+| `{mc_name}-status-applydesires` | status | no |
+| `{mc_name}-status-deletedesires` | status | no |
+| `{mc_name}-status-readdesires` | status | no |
 
-All tables use `PAY_PER_REQUEST` billing with `DocumentID` (string) as the partition key.
+All tables use `PAY_PER_REQUEST` billing with `documentID` (string) as the partition key.
 
 ## Backend IAM Role
 
 A single backend role (`{rc_id}-kube-applier-backend`) is created (or referenced) with:
-- **Specs tables** (`mc-*-specs-*`): `PutItem`, `UpdateItem`, `DeleteItem`, `GetItem`, `Scan`, `Query`
-- **Status tables** (`mc-*-status-*`): `GetItem`, `Scan`, `Query`
+- **Specs tables** (`{mc_name}-specs-*`): `PutItem`, `UpdateItem`, `DeleteItem`, `GetItem`, `Scan`, `Query`
+- **Status tables** (`{mc_name}-status-*`): `GetItem`, `Scan`, `Query`
 
 This role is for the future backend service that writes desires and reads status across all MCs.
 
